@@ -15,11 +15,12 @@ dill.settings['recurse'] = True
 inputs = np.zeros(9, dtype=np.float64)
 params = np.zeros((4, 3), dtype=np.float64)
 fiducials = np.zeros(9, dtype=np.float64)
-
+RED = np.array([1., 0, 0, .5], dtype=np.float32)
 RR_MAX = int(300.)
 Y_RANGE = (-1000, 1000)
 
 class FiducialsModel(QAbstractTableModel):
+    drawMarkers = Signal(np.ndarray, np.ndarray)
 
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
@@ -46,19 +47,10 @@ class FiducialsModel(QAbstractTableModel):
             return float(value)
     
     def updateFiducials(self, params):
-        self._data[0] = params[1] - 2.5 * params[2] # Pon
-        self._data[1] = params[1] # P
-        self._data[2] = params[1] + 2.5 * params[2] #Pend
-
-        self._data[3] = params[4] - 3. * params[5] # QRSon
-        self._data[4] = params[4] # R
-        self._data[5] = params[7] # S
-        self._data[6] = params[10] + utils.z_pos_J() * params[11] # QRSend / J
-
-        self._data[7] = params[10] # T
-        self._data[8] = self.T_end(params[10], params[11]) # Tend
-
+        self._data[:] = utils.fiducial_points(params, fun=self.T_end)
         self.layoutChanged.emit()
+        self.drawMarkers.emit(self._data, params)
+
 class InputsModel(QAbstractTableModel):
     computeParams = Signal(np.ndarray)
 
@@ -226,33 +218,58 @@ class BeatViewer(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)
         
-        self._data = np.empty((2*RR_MAX, 2), dtype = np.float64)
+        self._data = np.empty((2*RR_MAX, 2), dtype = np.float32)
         self._data[:,0] = np.arange(0, 2*RR_MAX)
+
+        self._markers = np.zeros((9, 2), dtype=np.float32)
 
         self.setup_ui()
 
     def setup_ui(self):
         self.canvas = vp.scene.SceneCanvas(show=True, bgcolor='white', parent=self)
-        self.view = self.canvas.central_widget.add_view(camera='panzoom')
-        self.view.camera.interactive = False
+        self.grid = self.canvas.central_widget.add_grid()
+
+        self.vb1 = self.grid.add_view(row=0, col=0, camera='panzoom')
+        self.vb1.camera.interactive = False
 
         self.line = vp.scene.Line(
             pos = self._data,
             color = 'black',
-            parent=self.view.scene
+            parent=self.vb1.scene
+        )
+
+        # self.vb2 = self.grid.add_view(row=1, col=0, camera='panzoom')
+        # self.vb2.camera.interactive = False
+
+        self.markers = vp.scene.Markers(
+            pos = self._markers,
+            parent=self.vb1.scene
         )
 
         layout = QVBoxLayout()
         layout.addWidget(self.canvas.native)
         self.setLayout(layout)
 
-    def set_data(self, params):
-        self.view.camera.set_range(
+    def set_line(self, params):
+        self.vb1.camera.set_range(
             x=(0, 2*params[4]),
             y = Y_RANGE
         )
         self._data[:,1] = utils.model(self._data[:,0], *params.tolist())
         self.line.set_data(pos=self._data)
+
+    def set_markers(self, fiducials, params):
+        self._markers[:, 0] = fiducials
+        self._markers[:, 1] = utils.model(fiducials, *params.tolist())
+
+        self.markers.set_data(
+            self._markers,
+            size = 10,
+            edge_width = 0,
+            edge_color = RED,
+            face_color = RED,
+        )
+        self.markers.update()
 
 class ecgsyn(QMainWindow):
     def __init__(self, app):
@@ -268,11 +285,12 @@ class ecgsyn(QMainWindow):
 
         self.inputs_model.computeParams.connect(self.params_model.updateParams)
         self.params_model.computeSignal.connect(self.update)
+        self.fiducials_model.drawMarkers.connect(self.beatViewer.set_markers)
 
         self.inputs_model.setDefaultInputs(self.inputsPanel.default_values)
 
     def update(self, params):
-        self.beatViewer.set_data(params)
+        self.beatViewer.set_line(params)
         self.fiducials_model.updateFiducials(params)
 
     def load_files(self):

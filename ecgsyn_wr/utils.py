@@ -137,3 +137,20 @@ def nonlinear_system(x, y = None, params=None): # a_p, a_r, a_s, a_t
 
 def amplitude_params(y, fun=None):
     return sp.optimize.broyden1(fun, y) # # a_p, a_r, a_s, a_t
+
+def fiducial_points(params, fun=None):
+    fiducials = np.empty(9, np.float64)
+
+    fiducials[0] = params[1] - 2.5 * params[2] # Pon
+    fiducials[1] = params[1] # P
+    fiducials[2] = params[1] + 2.5 * params[2] #Pend
+
+    fiducials[3] = params[4] - 3. * params[5] # QRSon
+    fiducials[4] = params[4] # R
+    fiducials[5] = params[7] # S
+    fiducials[6] = params[10] + z_pos_J() * params[11] # QRSend / J
+
+    fiducials[7] = params[10] # T
+    fiducials[8] = fun(params[10], params[11]) # Tend
+
+    return fiducials
