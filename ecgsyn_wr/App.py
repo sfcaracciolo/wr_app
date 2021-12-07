@@ -13,7 +13,9 @@ from vispy import scene
 dill.settings['recurse'] = True
 inputs = np.zeros(9, dtype=np.float64)
 params = np.zeros((4, 3), dtype=np.float64)
-N_MAX = 1000
+F_S = 1024
+RR_MAX = int(300.)
+Y_RANGE = (-1000, 1000)
 class InputsModel(QAbstractTableModel):
     computeParams = Signal(np.ndarray)
 
@@ -145,7 +147,7 @@ class InputsPanel(QWidget):
         
         steps = [1, 1, 1, 1, 1, 1, 1, 1, 1]
         limits = [
-            (200., 300.), 
+            (200., RR_MAX), 
             (20., 30.), 
             (40., 70.),
             (10., 40.),
@@ -189,25 +191,20 @@ class BeatViewer(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)
         
-        self._data = np.empty((N_MAX, 2), dtype = np.float64)
-        self._data[:,0] = np.arange(N_MAX)
+        self._data = np.empty((2*RR_MAX, 2), dtype = np.float64)
+        self._data[:,0] = np.arange(0, 2*RR_MAX)
 
         self.setup_ui()
 
     def setup_ui(self):
         self.canvas = vp.scene.SceneCanvas(show=True, bgcolor='white', parent=self)
-        view = self.canvas.central_widget.add_view(camera='panzoom')
-        view.camera.interactive = True
+        self.view = self.canvas.central_widget.add_view(camera='panzoom')
+        self.view.camera.interactive = False
 
         self.line = vp.scene.Line(
             pos = self._data,
             color = 'black',
-            parent=view.scene
-        )
-
-        view.camera.set_range(
-            x = (0, N_MAX),
-            y = (-1000, 1000)
+            parent=self.view.scene
         )
 
         layout = QVBoxLayout()
@@ -215,8 +212,11 @@ class BeatViewer(QWidget):
         self.setLayout(layout)
 
     def set_data(self, params):
-        t = self._data[:,0]
-        self._data[:,1] = utils.model(t, *params.tolist())
+        self.view.camera.set_range(
+            x=(0, 2*params[4]),
+            y = Y_RANGE
+        )
+        self._data[:,1] = utils.model(self._data[:,0], *params.tolist())
         self.line.set_data(pos=self._data)
 
 class ecgsyn(QMainWindow):
