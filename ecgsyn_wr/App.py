@@ -1,6 +1,6 @@
 
 import typing
-from PySide6.QtWidgets import QApplication, QDataWidgetMapper, QDockWidget, QGridLayout, QHBoxLayout, QLabel, QListView, QMainWindow, QSlider, QSplitter, QTableView, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QDataWidgetMapper, QDockWidget, QGridLayout, QHBoxLayout, QLabel, QListView, QMainWindow, QSlider, QSplitter, QTableView, QVBoxLayout, QWidget, QHeaderView
 from PySide6.QtCore import QAbstractListModel, QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt, Signal
 from superqt import QLabeledSlider
 import sys
@@ -45,6 +45,9 @@ class FiducialsModel(QAbstractTableModel):
             j = index.column()
             value = self._data[j]
             return float(value)
+        
+        if role == Qt.TextAlignmentRole:
+            return Qt.AlignCenter
     
     def updateFiducials(self, params):
         self._data[:] = utils.fiducial_points(params, fun=self.T_end)
@@ -77,6 +80,9 @@ class InputsModel(QAbstractTableModel):
             j = index.column()
             value = self._data[j]
             return float(value)
+
+        if role == Qt.TextAlignmentRole:
+            return Qt.AlignCenter
 
     # def flags(self, index: typing.Union[QModelIndex, QPersistentModelIndex]) -> Qt.ItemFlags:
     #     return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable
@@ -116,6 +122,9 @@ class ParamsModel(QAbstractTableModel):
             value = self._data[i, j]
             return float(value)
 
+        if role == Qt.TextAlignmentRole:
+            return Qt.AlignCenter
+
     def headerData(self, section: int, orientation: Qt.Orientation, role: int) -> typing.Any:
         if role == Qt.DisplayRole:
             return self._vheader[section] if orientation == Qt.Vertical else self._hheader[section]
@@ -128,10 +137,7 @@ class ParamsModel(QAbstractTableModel):
         PR = inputs[2]
         QRS = inputs[3]
         QT = inputs[4]
-        Ppeak = inputs[5]
-        Rpeak = inputs[6]
-        Speak = inputs[7]
-        Tpeak = inputs[8]
+        peaks = inputs[5:]
 
         # PQRS part
         p = utils.temporal_gaussian_params(RR, PR, P, QRS, fun=self.T_gauss)
@@ -144,10 +150,9 @@ class ParamsModel(QAbstractTableModel):
         self._data[3, 1:] = p
 
         # amplitudes
-        y = np.array([Ppeak, Rpeak, Speak, Tpeak])
         params = np.ravel(self._data, order='C')
-        F = lambda x: utils.nonlinear_system(x, y=y, params=params.tolist())
-        p = utils.amplitude_params(y, fun=F)
+        F = lambda x: utils.nonlinear_system(x, y=peaks, params=params.tolist())
+        p = utils.amplitude_params(peaks, fun=F)
         self._data[:, 0] = p
 
         self.layoutChanged.emit()
@@ -159,7 +164,8 @@ class TablePanel(QWidget):
         self.setMinimumWidth(500)
         table = QTableView()
         table.setModel(model)
-        table.resizeColumnsToContents()
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout = QVBoxLayout()
         layout.addWidget(table)
         self.setLayout(layout)
@@ -204,13 +210,11 @@ class InputsPanel(QWidget):
             slider.valueChanged.connect(lambda v, i=i: model.updateInputs(i, v))
 
         self.mapper.toFirst()
-        inputsView = QTableView()
-        inputsView.setModel(model)
-        inputsView.resizeColumnsToContents()
 
+        # inputsView = TablePanel(model)
         layout = QVBoxLayout()
         layout.addLayout(grid)
-        layout.addWidget(inputsView)
+        # layout.addWidget(inputsView)
 
         self.setLayout(layout)
 
@@ -310,8 +314,11 @@ class ecgsyn(QMainWindow):
 
         vsplitter = QSplitter(Qt.Vertical)
         vsplitter.addWidget(self.inputsPanel)
+        vsplitter.setStretchFactor(0, 3)
         vsplitter.addWidget(fiducialsTable)
+        vsplitter.setStretchFactor(1, 1)
         vsplitter.addWidget(paramsTable)
+        vsplitter.setStretchFactor(2, 1)
 
         hsplitter = QSplitter(Qt.Horizontal)
         hsplitter.addWidget(vsplitter)

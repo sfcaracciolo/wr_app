@@ -139,6 +139,7 @@ def amplitude_params(y, fun=None):
     return sp.optimize.broyden1(fun, y) # # a_p, a_r, a_s, a_t
 
 def fiducial_points(params, fun=None):
+    """Compute fiducials from the model parameters. Required the Tend sympy function."""
     fiducials = np.empty(9, np.float64)
 
     fiducials[0] = params[1] - 2.5 * params[2] # Pon
