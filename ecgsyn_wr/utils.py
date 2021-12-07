@@ -102,7 +102,9 @@ def temporal_gaussian_params(RR, PR, P, QRS, fun=None):
 
 def temporal_gumbel_params(QT, QRS, QRS_on, fun=None):
 
-    sigma_t = np.roots(fun(QT, QRS, QRS_on))[0].real
+    roots = np.roots(fun(QT, QRS, QRS_on))
+    cond = np.logical_and(np.isreal(roots), roots > 0)
+    sigma_t = roots[cond][0].real
 
     Z_J = np.log(1.5-np.sqrt(5)/2)
     J = QRS + QRS_on
