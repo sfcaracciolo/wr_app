@@ -5,9 +5,10 @@ from PySide6.QtCore import QAbstractListModel, QAbstractTableModel, QModelIndex,
 from superqt import QLabeledSlider
 import sys
 import numpy as np
-from sympy.utilities.iterables import flatten
 from ecgsyn_wr import utils
+import dill
 
+dill.settings['recurse'] = True
 inputs = np.zeros(9, dtype=np.float64)
 params = np.zeros((4, 3), dtype=np.float64)
 
@@ -55,7 +56,12 @@ class ParamsModel(QAbstractTableModel):
         self._vheader = ['P', 'R', 'S', 'T']
 
         self.T_gauss = utils.transform_matrix()
-        self.T_gumbel = utils.poly_coeffs()
+
+        try:
+            self.T_gumbel = dill.load(open("coeffs", "rb"))
+        except FileNotFoundError:
+            self.T_gumbel = utils.poly_coeffs()
+            dill.dump(self.T_gumbel, open("coeffs", "wb"))
 
     def rowCount(self, parent=None) -> int:
         return self._data.shape[0]
