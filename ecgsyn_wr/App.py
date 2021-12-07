@@ -7,11 +7,13 @@ import sys
 import numpy as np
 from ecgsyn_wr import utils
 import dill
+import vispy as vp
+from vispy import scene
 
 dill.settings['recurse'] = True
 inputs = np.zeros(9, dtype=np.float64)
 params = np.zeros((4, 3), dtype=np.float64)
-
+N_MAX = 1000
 class InputsModel(QAbstractTableModel):
     computeParams = Signal(np.ndarray)
 
@@ -48,7 +50,14 @@ class InputsModel(QAbstractTableModel):
         self.dataChanged.emit(index, index)
         self.computeParams.emit(self._data)
 
+    def setDefaultInputs(self, values):
+        self._data[:] = np.array(values)
+        self.layoutChanged.emit()
+        self.computeParams.emit(self._data)
+
 class ParamsModel(QAbstractTableModel):
+    computeModel = Signal(np.ndarray)
+
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
         self._data = data
@@ -103,14 +112,15 @@ class ParamsModel(QAbstractTableModel):
         self._data[3, 1:] = p
 
         # amplitudes
+        params = np.ravel(self._data, order='C')
         self._data[:, 0] = np.array([Ppeak, Rpeak, Speak, Tpeak])
-        F = lambda x: utils.nonlinear_system(x, params=self._data.flatten())
+        F = lambda x: utils.nonlinear_system(x, params=params)
         p = utils.amplitude_params(Ppeak, Rpeak, Speak, Tpeak, fun=F)
         self._data[:, 0] = p
 
         self.layoutChanged.emit()
+        self.computeModel.emit(params)
 
-            
 class ParamsPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)
@@ -134,20 +144,31 @@ class InputsPanel(QWidget):
         model = self.parent().inputs_model
         
         steps = [1, 1, 1, 1, 1, 1, 1, 1, 1]
-        limits = [(0., 10.), (0., 10.), (0., 10.), (0., 10.), (0., 10.), (0., 10.), (0., 10.), (0., 10.), (0., 10.)]
-        self.sliders = []
+        limits = [
+            (200., 300.), 
+            (20., 30.), 
+            (40., 70.),
+            (10., 40.),
+            (60., 120.),
+            (-250., 250.), 
+            (300., 1000.),
+            (-600., -100.),
+            (80., 150.)
+        ]
+        default_values = [250., 22., 50., 16., 80., 70., 600., -300., 120.,]
 
         self.mapper = QDataWidgetMapper()
-        self.mapper.setModel(model)
         self.mapper.setSubmitPolicy(QDataWidgetMapper.SubmitPolicy.ManualSubmit)
+        self.mapper.setModel(model)
         
         grid = QGridLayout()
-        for i, (name, step, limit) in enumerate(zip(model._names, steps, limits)):
+        for i, (name, step, limit, value) in enumerate(zip(model._names, steps, limits, default_values)):
             grid.addWidget(QLabel(name), i, 0)
             slider = QLabeledSlider(Qt.Horizontal)
             slider.setRange(*limit)
             slider.setTickPosition(QSlider.TickPosition.TicksAbove)
             slider.setSingleStep(step)
+            slider.setValue(value)
             grid.addWidget(slider, i, 1)
             self.mapper.addMapping(slider, i)
             slider.valueChanged.connect(lambda v, i=i: model.updateInputs(i, v))
@@ -156,6 +177,7 @@ class InputsPanel(QWidget):
         inputsView = QTableView()
         inputsView.setModel(model)
         inputsView.resizeColumnsToContents()
+        model.setDefaultInputs(default_values)
 
         layout = QVBoxLayout()
         layout.addLayout(grid)
@@ -163,29 +185,70 @@ class InputsPanel(QWidget):
 
         self.setLayout(layout)
 
+class BeatViewer(QWidget):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent=parent)
+        
+        self._data = np.empty((N_MAX, 2), dtype = np.float64)
+        self._data[:,0] = np.arange(N_MAX)
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        self.canvas = vp.scene.SceneCanvas(show=True, bgcolor='white', parent=self)
+        view = self.canvas.central_widget.add_view(camera='panzoom')
+        view.camera.interactive = True
+
+        self.line = vp.scene.Line(
+            pos = self._data,
+            color = 'black',
+            parent=view.scene
+        )
+
+        view.camera.set_range(
+            x = (0, N_MAX),
+            y = (-1000, 1000)
+        )
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas.native)
+        self.setLayout(layout)
+
+    def set_data(self, params):
+        t = self._data[:,0]
+        self._data[:,1] = utils.model(t, *params.tolist())
+        self.line.set_data(pos=self._data)
+
 class ecgsyn(QMainWindow):
     def __init__(self, app):
         super().__init__()
         self.app = app
         self.params_model = ParamsModel(params)
         self.inputs_model = InputsModel(inputs)
-        self.inputs_model.computeParams.connect(self.params_model.updateParams)
-
         self.setup_ui()
+
+        self.inputs_model.computeParams.connect(self.params_model.updateParams)
+        self.params_model.computeModel.connect(self.beatViewer.set_data)
+
 
     def setup_ui(self):
         self.setWindowTitle('ecgsyn')
 
         inputsPanel = InputsPanel(parent=self)
         paramsPanel = ParamsPanel(parent=self)
+        self.beatViewer = BeatViewer(parent=self)
 
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(inputsPanel)
-        splitter.addWidget(paramsPanel)
-        self.setCentralWidget(splitter)
+        vsplitter = QSplitter(Qt.Vertical)
+        vsplitter.addWidget(inputsPanel)
+        vsplitter.addWidget(paramsPanel)
+
+        hsplitter = QSplitter(Qt.Horizontal)
+        hsplitter.addWidget(vsplitter)
+        hsplitter.addWidget(self.beatViewer)
+
+        self.setCentralWidget(hsplitter)
 
         self.show()
-
 
 def run():
     app = QApplication(sys.argv)
