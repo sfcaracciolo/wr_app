@@ -9,13 +9,56 @@ from ecgsyn_wr import utils
 import dill
 import vispy as vp
 from vispy import scene
+import os 
 
 dill.settings['recurse'] = True
 inputs = np.zeros(9, dtype=np.float64)
 params = np.zeros((4, 3), dtype=np.float64)
-F_S = 1024
+fiducials = np.zeros(9, dtype=np.float64)
+
 RR_MAX = int(300.)
 Y_RANGE = (-1000, 1000)
+
+class FiducialsModel(QAbstractTableModel):
+
+    def __init__(self, data: np.ndarray, parent=None) -> None:
+        super().__init__(parent=parent)
+        self._data = data
+        self._names = ['Pon', 'P', 'Pend', 'QRSon', 'R', 'S', 'QRSend', 'T', 'Tend']
+        self.T_end = dill.load(open("tend", "rb"))
+
+    def rowCount(self, parent=None) -> int:
+        return 1
+    
+    def columnCount(self, parent = None) -> int:
+        return self._data.size
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int) -> typing.Any:
+        if role == Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                return self._names[section]
+        return super().headerData(section, orientation, role=role)
+
+    def data(self, index: QModelIndex, role: int) -> typing.Any:
+        if role == Qt.DisplayRole:
+            j = index.column()
+            value = self._data[j]
+            return float(value)
+    
+    def updateFiducials(self, params):
+        self._data[0] = params[1] - 2.5 * params[2] # Pon
+        self._data[1] = params[1] # P
+        self._data[2] = params[1] + 2.5 * params[2] #Pend
+
+        self._data[3] = params[4] - 3. * params[5] # QRSon
+        self._data[4] = params[4] # R
+        self._data[5] = params[7] # S
+        self._data[6] = params[10] + utils.z_pos_J() * params[11] # QRSend / J
+
+        self._data[7] = params[10] # T
+        self._data[8] = self.T_end(params[10], params[11]) # Tend
+
+        self.layoutChanged.emit()
 class InputsModel(QAbstractTableModel):
     computeParams = Signal(np.ndarray)
 
@@ -58,7 +101,7 @@ class InputsModel(QAbstractTableModel):
         self.computeParams.emit(self._data)
 
 class ParamsModel(QAbstractTableModel):
-    computeModel = Signal(np.ndarray)
+    computeSignal = Signal(np.ndarray)
 
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
@@ -67,12 +110,7 @@ class ParamsModel(QAbstractTableModel):
         self._vheader = ['P', 'R', 'S', 'T']
 
         self.T_gauss = utils.transform_matrix()
-
-        try:
-            self.T_gumbel = dill.load(open("coeffs", "rb"))
-        except FileNotFoundError:
-            self.T_gumbel = utils.poly_coeffs()
-            dill.dump(self.T_gumbel, open("coeffs", "wb"))
+        self.T_gumbel = dill.load(open("coeffs", "rb"))
 
     def rowCount(self, parent=None) -> int:
         return self._data.shape[0]
@@ -114,24 +152,22 @@ class ParamsModel(QAbstractTableModel):
         self._data[3, 1:] = p
 
         # amplitudes
+        y = np.array([Ppeak, Rpeak, Speak, Tpeak])
         params = np.ravel(self._data, order='C')
-        self._data[:, 0] = np.array([Ppeak, Rpeak, Speak, Tpeak])
-        F = lambda x: utils.nonlinear_system(x, params=params)
-        p = utils.amplitude_params(Ppeak, Rpeak, Speak, Tpeak, fun=F)
+        F = lambda x: utils.nonlinear_system(x, y=y, params=params.tolist())
+        p = utils.amplitude_params(y, fun=F)
         self._data[:, 0] = p
 
         self.layoutChanged.emit()
-        self.computeModel.emit(params)
+        self.computeSignal.emit(params)
 
-class ParamsPanel(QWidget):
-    def __init__(self, parent=None) -> None:
+class TablePanel(QWidget):
+    def __init__(self, model, parent=None) -> None:
         super().__init__(parent=parent)
-        self.setup_ui()
-
-    def setup_ui(self):
         self.setMinimumWidth(500)
         table = QTableView()
-        table.setModel(self.parent().params_model)
+        table.setModel(model)
+        table.resizeColumnsToContents()
         layout = QVBoxLayout()
         layout.addWidget(table)
         self.setLayout(layout)
@@ -155,21 +191,21 @@ class InputsPanel(QWidget):
             (-250., 250.), 
             (300., 1000.),
             (-600., -100.),
-            (80., 150.)
+            (80., 300.)
         ]
-        default_values = [250., 22., 50., 16., 80., 70., 600., -300., 120.,]
+        self.default_values = [250., 22., 50., 16., 80., 70., 600., -300., 120.,]
 
         self.mapper = QDataWidgetMapper()
         self.mapper.setSubmitPolicy(QDataWidgetMapper.SubmitPolicy.ManualSubmit)
         self.mapper.setModel(model)
         
         grid = QGridLayout()
-        for i, (name, step, limit, value) in enumerate(zip(model._names, steps, limits, default_values)):
+        for i, (name, step, limit, value) in enumerate(zip(model._names, steps, limits, self.default_values)):
             grid.addWidget(QLabel(name), i, 0)
             slider = QLabeledSlider(Qt.Horizontal)
             slider.setRange(*limit)
-            slider.setTickPosition(QSlider.TickPosition.TicksAbove)
-            slider.setSingleStep(step)
+            # slider.setTickPosition(QSlider.TickPosition.TicksAbove)
+            # slider.setSingleStep(step)
             slider.setValue(value)
             grid.addWidget(slider, i, 1)
             self.mapper.addMapping(slider, i)
@@ -179,7 +215,6 @@ class InputsPanel(QWidget):
         inputsView = QTableView()
         inputsView.setModel(model)
         inputsView.resizeColumnsToContents()
-        model.setDefaultInputs(default_values)
 
         layout = QVBoxLayout()
         layout.addLayout(grid)
@@ -223,24 +258,42 @@ class ecgsyn(QMainWindow):
     def __init__(self, app):
         super().__init__()
         self.app = app
+
+        self.load_files()
         self.params_model = ParamsModel(params)
         self.inputs_model = InputsModel(inputs)
+        self.fiducials_model = FiducialsModel(fiducials)
+
         self.setup_ui()
 
         self.inputs_model.computeParams.connect(self.params_model.updateParams)
-        self.params_model.computeModel.connect(self.beatViewer.set_data)
+        self.params_model.computeSignal.connect(self.update)
 
+        self.inputs_model.setDefaultInputs(self.inputsPanel.default_values)
+
+    def update(self, params):
+        self.beatViewer.set_data(params)
+        self.fiducials_model.updateFiducials(params)
+
+    def load_files(self):
+        if not( os.path.exists('coeffs') and os.path.exists('tend')):
+            print('wait 100 seconds aprox ... only for the first opening.')
+            T_gumbel, T_end = utils.poly_coeffs()
+            dill.dump(T_gumbel, open("coeffs", "wb"))
+            dill.dump(T_end, open("tend", "wb"))
 
     def setup_ui(self):
         self.setWindowTitle('ecgsyn')
 
-        inputsPanel = InputsPanel(parent=self)
-        paramsPanel = ParamsPanel(parent=self)
+        self.inputsPanel = InputsPanel(parent=self)
+        paramsTable = TablePanel(self.params_model, parent=self)
+        fiducialsTable = TablePanel(self.fiducials_model, parent=self)
         self.beatViewer = BeatViewer(parent=self)
 
         vsplitter = QSplitter(Qt.Vertical)
-        vsplitter.addWidget(inputsPanel)
-        vsplitter.addWidget(paramsPanel)
+        vsplitter.addWidget(self.inputsPanel)
+        vsplitter.addWidget(fiducialsTable)
+        vsplitter.addWidget(paramsTable)
 
         hsplitter = QSplitter(Qt.Horizontal)
         hsplitter.addWidget(vsplitter)

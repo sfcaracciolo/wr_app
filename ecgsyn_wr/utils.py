@@ -19,6 +19,9 @@ def model(x, a_p, mu_p, sigma_p, a_r, mu_r, sigma_r, a_s, mu_s, sigma_s, a_t, mu
     t_wave = gumbel_wave(x, a_t, mu_t, sigma_t)
     return p_wave + r_wave + s_wave + t_wave
 
+def z_pos_J():
+    return np.log(1.5-np.sqrt(5)/2)
+
 def z_pos(peak_percent):
     # x, c = sy.symbols('x c')
     # s = sy.solve(x + sy.exp(-x) - c, x)[0]
@@ -42,7 +45,7 @@ def transform_matrix():
 
     return np.linalg.inv(T)
 
-def poly_coeffs():
+def t_end():
     # build error between  gumbel and line.
     y1 = sy.Symbol('y1', real=True, positive=False)
     y2 = sy.Symbol('y2', real=True, positive=True)
@@ -74,9 +77,14 @@ def poly_coeffs():
     # T_end = T_end.subs(a_n, sy.E * a)
     T_end = T_end.simplify()
 
-    # J normalizado
-    Z_J = sy.ln(sy.Rational(3,2) - sy.sqrt(5)/2).evalf()
 
+    return T_end
+
+def poly_coeffs():
+
+    sigma = sy.Symbol('sigma', real=True, positive=True)
+    mu = sy.Symbol('mu', real=True, positive=True)
+    
     # inputs
     QRS = sy.Symbol('QRS', real=True, positive=True)
     QRS_on = sy.Symbol('QRS_on', real=True, positive=True)
@@ -84,17 +92,19 @@ def poly_coeffs():
     J = QRS + QRS_on
 
     # aplico inputs sin evaluar 
-    T_end = T_end.subs(mu, J - Z_J*sigma)
+    T_end = t_end()
+    T_end_sub = T_end.subs(mu, J - z_pos_J()*sigma)
 
     # despejo sigma y polinomio característico.
-    eq = sy.solveset(T_end - (QT + QRS_on), sigma , domain=sy.S.Reals).args[0].args[1].args[0]
+    eq = sy.solveset(T_end_sub - (QT + QRS_on), sigma , domain=sy.S.Reals).args[0].args[1].args[0]
 
     # tomo coeffs en función de los inputs
     coeffs = eq.as_poly(sigma).coeffs()
 
     f = sy.lambdify([QT, QRS, QRS_on], coeffs)
+    g = sy.lambdify([mu, sigma], T_end)
 
-    return f
+    return f, g
 
 def temporal_gaussian_params(RR, PR, P, QRS, fun=None):
     v = np.array([PR, P, RR, 0., 0., QRS])
@@ -106,19 +116,24 @@ def temporal_gumbel_params(QT, QRS, QRS_on, fun=None):
     cond = np.logical_and(np.isreal(roots), roots > 0)
     sigma_t = roots[cond][0].real
 
-    Z_J = np.log(1.5-np.sqrt(5)/2)
     J = QRS + QRS_on
-    mu_t = J - Z_J * sigma_t
+    mu_t = J - z_pos_J() * sigma_t
 
     return mu_t, sigma_t
 
-def nonlinear_system(x, params=None): # a_p, a_r, a_s, a_t
-    f1 = x[0] - model(params[1], *params)
-    f2 = x[1] - model(params[4], *params)
-    f3 = x[2] - model(params[7], *params)
-    f4 = x[3] - model(params[10], *params)
+def nonlinear_system(x, y = None, params=None): # a_p, a_r, a_s, a_t
+
+    params[0] = x[0]
+    params[3] = x[1]
+    params[6] = x[2]
+    params[9] = x[3]
+
+    f1 = y[0] - model(params[1], *params)
+    f2 = y[1] - model(params[4], *params)
+    f3 = y[2] - model(params[7], *params)
+    f4 = y[3] - model(params[10], *params)
+
     return [ f1, f2, f3, f4 ]
 
-def amplitude_params(P, R, S, T, fun=None):
-    v = np.array([P, R, S, T], dtype=np.float64)
-    return sp.optimize.broyden1(fun, v) # # a_p, a_r, a_s, a_t
+def amplitude_params(y, fun=None):
+    return sp.optimize.broyden1(fun, y) # # a_p, a_r, a_s, a_t
