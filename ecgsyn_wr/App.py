@@ -14,7 +14,7 @@ import os
 dill.settings['recurse'] = True
 inputs = np.zeros(9, dtype=np.float64)
 params = np.zeros((4, 3), dtype=np.float64)
-fiducials = np.zeros(9, dtype=np.float64)
+fiducials = np.zeros(13, dtype=np.float32)
 RED = np.array([1., 0, 0, .5], dtype=np.float32)
 RR_MAX = int(300.)
 Y_RANGE = (-1000, 1000)
@@ -25,7 +25,7 @@ class FiducialsModel(QAbstractTableModel):
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
         self._data = data
-        self._names = ['Pon', 'P', 'Pend', 'QRSon', 'R', 'S', 'QRSend', 'T', 'Tend']
+        self._names = ['Pon', 'P', 'Pend', 'QRSon', 'Q', 'R', 'S', 'QRSend','res','Ton', 'T', 'Tend', 'res']
         self.T_end = dill.load(open("tend", "rb"))
 
     def rowCount(self, parent=None) -> int:
@@ -50,9 +50,11 @@ class FiducialsModel(QAbstractTableModel):
             return Qt.AlignCenter
     
     def updateFiducials(self, params):
-        self._data[:] = utils.fiducial_points(params, fun=self.T_end)
+        self._data[:] = utils.params2fiducials(params, fun=self.T_end)
         self.layoutChanged.emit()
-        self.drawMarkers.emit(self._data, params)
+
+        subset_fiducials = np.delete(self._data, [4, 8, 9, 12])
+        self.drawMarkers.emit(subset_fiducials, params)
 
 class InputsModel(QAbstractTableModel):
     computeParams = Signal(np.ndarray)
@@ -104,6 +106,8 @@ class ParamsModel(QAbstractTableModel):
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
         self._data = data
+        self._flatten_data = np.ravel(self._data, order='C')        
+
         self._hheader = ['a', 'mu', 'sigma']
         self._vheader = ['P', 'R', 'S', 'T']
 
@@ -131,32 +135,9 @@ class ParamsModel(QAbstractTableModel):
         return super().headerData(section, orientation, role=role)
 
     def updateParams(self, inputs):
-        
-        RR = inputs[0]
-        P = inputs[1]
-        PR = inputs[2]
-        QRS = inputs[3]
-        QT = inputs[4]
-        peaks = inputs[5:]
-
-        # PQRS part
-        p = utils.temporal_gaussian_params(RR, PR, P, QRS, fun=self.T_gauss)
-        self._data[:3, 1] = p[:3]
-        self._data[:3, 2] = p[3:6]
-
-        # T part
-        QRS_on = self._data[1, 1] - 3*self._data[1, 2]
-        p = utils.temporal_gumbel_params(QT, QRS, QRS_on, fun=self.T_gumbel)
-        self._data[3, 1:] = p
-
-        # amplitudes
-        params = np.ravel(self._data, order='C')
-        F = lambda x: utils.nonlinear_system(x, y=peaks, params=params.tolist())
-        p = utils.amplitude_params(peaks, fun=F)
-        self._data[:, 0] = p
-
+        self._data[:] = utils.inputs2params(inputs, transforms=[self.T_gauss, self.T_gumbel])
         self.layoutChanged.emit()
-        self.computeSignal.emit(params)
+        self.computeSignal.emit(self._flatten_data)
 
 class TablePanel(QWidget):
     def __init__(self, model, parent=None) -> None:

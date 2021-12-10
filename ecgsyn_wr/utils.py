@@ -1,6 +1,6 @@
 import numpy as np
 import scipy as sp
-from scipy import optimize, special
+from scipy import optimize, special, integrate
 import sympy as sy
 
 def gaussian_wave(x, a, mu, sigma):
@@ -138,20 +138,101 @@ def nonlinear_system(x, y = None, params=None): # a_p, a_r, a_s, a_t
 def amplitude_params(y, fun=None):
     return sp.optimize.broyden1(fun, y) # # a_p, a_r, a_s, a_t
 
-def fiducial_points(params, fun=None):
+def params2fiducials(params, fun=None):
     """Compute fiducials from the model parameters. Required the Tend sympy function."""
-    fiducials = np.empty(9, np.float64)
+    fiducials = np.full(13, np.nan, np.float32)
 
     fiducials[0] = params[1] - 2.5 * params[2] # Pon
     fiducials[1] = params[1] # P
     fiducials[2] = params[1] + 2.5 * params[2] #Pend
 
     fiducials[3] = params[4] - 3. * params[5] # QRSon
-    fiducials[4] = params[4] # R
-    fiducials[5] = params[7] # S
-    fiducials[6] = params[10] + z_pos_J() * params[11] # QRSend / J
+    fiducials[5] = params[4] # R
+    fiducials[6] = params[7] # S
+    fiducials[7] = params[10] + z_pos_J() * params[11] # QRSend / J
 
-    fiducials[7] = params[10] # T
-    fiducials[8] = fun(params[10], params[11]) # Tend
+    fiducials[10] = params[10] # T
+    fiducials[11] = fun(params[10], params[11]) # Tend
 
     return fiducials
+
+def inputs2params(inputs, transforms=[None, None]):
+
+    params = np.empty((4, 3), dtype=np.float32)
+
+    RR = inputs[0]
+    P = inputs[1]
+    PR = inputs[2]
+    QRS = inputs[3]
+    QT = inputs[4]
+    peaks = inputs[5:]
+
+    # PQRS temporal part
+    p = temporal_gaussian_params(RR, PR, P, QRS, fun=transforms[0])
+    params[:3, 1] = p[:3]
+    params[:3, 2] = p[3:6]
+
+    # T temporal part
+    t_r = params[1,1]
+    sigma_r = params[1, 2]
+    QRS_on = t_r - 3*sigma_r
+    p = temporal_gumbel_params(QT, QRS, QRS_on, fun=transforms[1])
+    params[3, 1:] = p
+
+    # PQRST amplitudes
+    flatten_params = np.ravel(params, order='C').tolist()
+    F = lambda x: nonlinear_system(x, y=peaks, params=flatten_params)
+    p = amplitude_params(peaks, fun=F)
+    params[:, 0] = p
+
+    return params
+
+def perturbed_params(mean_params, sd_params, n=100):
+    return np.random.normal(mean_params, sd_params, size=(n, 12))
+
+def ecgsyn_wr(n_beats, rr, params):
+    """rr en ms. params en ms y uV"""
+    fun = lambda t, v: mc_sharry(t, v, rr, params)
+    t_end = rr*n_beats
+    samples = int(t_end)
+    time = np.linspace(0, t_end, num=samples)
+    sol = sp.integrate.solve_ivp(
+        fun,
+        t_span = (time[0], time[-1]),
+        y0 = [0, 1, 0], 
+        t_eval = time,
+        method='RK45'
+    )
+
+    return sol['t'], sol['y']
+
+def dxdt(t, v, rr):
+    alpha = 1. - np.sqrt(v[0]**2 + v[1]**2)
+    w = 2*np.pi/rr
+    return alpha * v[0] - w * v[1]
+
+def dydt(t, v, rr):
+    alpha = 1. - np.sqrt(v[0]**2 + v[1]**2)
+    w = 2*np.pi/rr
+    return alpha * v[1] + w * v[0]
+
+def dgdt(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    t = (np.pi + np.arctan2(v[1], v[0])) / w
+    z = (t-mu)/sigma
+    g = a*np.exp(-.5*z**2)
+    return -1.*g*z/sigma
+
+def dzdt(t, v, rr, params):
+    f = dgdt(t, v, rr, *params[:3])     \
+        + dgdt(t, v, rr, *params[3:6])  \
+        + dgdt(t, v, rr, *params[6:9])
+    return f
+
+def mc_sharry(t, v, rr, params):
+    F = [
+        dxdt(t, v, rr),
+        dydt(t, v, rr),
+        dzdt(t, v, rr, params)
+    ]
+    return F
