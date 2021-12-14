@@ -7,8 +7,6 @@ import os
 
 
 def build_transforms():
-    global T_gumbel
-    global T_end
 
     dill.settings['recurse'] = True
     if not( os.path.exists('coeffs') and os.path.exists('tend')):
