@@ -230,7 +230,7 @@ def ecgsyn_wr(n_beats, mean_inputs, sd_inputs, remove_drift=False):
 
     inputs = perturbed_data(mean_inputs, sd_inputs, n=n_beats)
     rr = inputs[:,0]
-    rr_acum = np.cumsum(rr)
+    rr_acum = np.cumsum(rr, dtype=np.float32)
 
     params = np.empty((n_beats, 12), dtype=np.float32)
     for i in range(n_beats):
@@ -238,13 +238,15 @@ def ecgsyn_wr(n_beats, mean_inputs, sd_inputs, remove_drift=False):
 
     time = np.arange(0, rr_acum[-1])
     rad = np.radians(-135)
+
     sol = sp.integrate.solve_ivp(
         mc_sharry,
         args = (rr, rr_acum, params),
         t_span = (time[0], time[-1]),
         y0 = [np.cos(rad), np.sin(rad), 0], 
         t_eval = time,
-        method='Radau'
+        method='Radau',
+        jac = mc_sharry_jac
     )
 
     if remove_drift:
@@ -253,6 +255,98 @@ def ecgsyn_wr(n_beats, mean_inputs, sd_inputs, remove_drift=False):
         z -= drift
 
     return sol['t'], sol['y']
+
+def mc_sharry_jac(t, v, rr, rr_acum, params):
+    i = np.nonzero(t < rr_acum)[0][0] # beat selector
+
+    return [
+        gradf1(t, v, rr[i]),
+        gradf2(t, v, rr[i]),
+        gradf3(t, v, rr[i], params[i,:])
+    ]
+
+def alpha(t, v):
+    return 1.-np.sqrt(v[0]**2 + v[1]**2)
+
+def gradf1(t, v, rr):
+    w = 2*np.pi/rr
+    return [
+        dadx(t, v) * v[0] + alpha(t, v),
+        dady(t, v) * v[0] - w,
+        0
+    ]
+
+def gradf2(t, v, rr):
+    w = 2*np.pi/rr
+    return [
+        dadx(t, v) * v[1] + w,
+        dady(t, v) * v[1] + alpha(t, v),
+        0
+    ]
+
+def gradf3(t, v, rr, params):
+    
+    df3dx = dgapdx(t, v, rr, *params[:3]) \
+        + dgapdx(t, v, rr, *params[3:6])  \
+        + dgapdx(t, v, rr, *params[6:9])  \
+        + dgupdx(t, v, rr, *params[9:])
+
+    df3dy = dgapdy(t, v, rr, *params[:3]) \
+        + dgapdy(t, v, rr, *params[3:6])  \
+        + dgapdy(t, v, rr, *params[6:9])  \
+        + dgupdy(t, v, rr, *params[9:])
+
+    return [df3dx, df3dy, 0]
+
+def dgupdx(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    t = (np.pi + np.arctan2(v[1], v[0])) / w
+    z = (t-mu)/sigma
+    g = gumbel_wave(t, a, mu, sigma)
+    p = dzdx(t, v, rr, a, mu, sigma)
+    return g*p*(np.exp(-2*z) - 3*np.exp(-z)+ 1)/sigma
+
+def dgupdy(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    t = (np.pi + np.arctan2(v[1], v[0])) / w
+    z = (t-mu)/sigma
+    g = gumbel_wave(t, a, mu, sigma)
+    p = dzdy(t, v, rr, a, mu, sigma)
+    return g*p*(np.exp(-2*z) - 3*np.exp(-z)+ 1)/sigma
+
+def dgapdx(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    t = (np.pi + np.arctan2(v[1], v[0])) / w
+    z = (t-mu)/sigma
+    g = gaussian_wave(t, a, mu, sigma)
+    p = dzdx(t, v, rr, a, mu, sigma)
+    return -g*p*(z+1.)/sigma
+
+def dgapdy(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    t = (np.pi + np.arctan2(v[1], v[0])) / w
+    z = (t-mu)/sigma
+    g = gaussian_wave(t, a, mu, sigma)
+    p = dzdy(t, v, rr, a, mu, sigma)
+    return -g*p*(z+1.)/sigma
+
+def dzdx(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    k = w * sigma
+    return (v[0]/(v[0]**2 + v[1]**2))/k
+
+def dzdy(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    k = - w * sigma
+    return (v[1]/(v[0]**2 + v[1]**2))/k
+
+def dadx(t, v):
+    r = np.sqrt(v[0]**2 + v[1]**2)
+    return -v[0]/r
+
+def dady(t, v):
+    r = np.sqrt(v[0]**2 + v[1]**2)
+    return -v[1]/r
 
 def dxdt(t, v, rr):
     alpha = 1. - np.sqrt(v[0]**2 + v[1]**2)

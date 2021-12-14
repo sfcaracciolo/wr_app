@@ -217,6 +217,7 @@ class NoisePanel(QGroupBox):
 
         self.setTitle('Additive noise')
         self.setCheckable(True)
+        self.setChecked(False)
 
         self.beta = QLabeledSlider(Qt.Horizontal)
         self.beta.setRange(0, 5)
@@ -378,8 +379,9 @@ class EcgViewer(QWidget):
 
     def set_line(self, data):
         self.x_max = data.shape[0]
-        self.y_amax = np.abs(data[:,1]).max()
-        self.y_amax *= 1.2
+        self.y_min, self.y_max = data[:,1].min(), data[:,1].max()
+        self.y_min *= 1.2
+        self.y_max *= 1.2
 
         self.line.set_data(pos=data)
 
@@ -388,7 +390,7 @@ class EcgViewer(QWidget):
     def autospan(self):
         self.vb1.camera.set_range(
             x = (0, self.x_max),
-            y = (-self.y_amax , self.y_amax),
+            y = (self.y_min , self.y_max),
             margin = 0.
         )
 
