@@ -1,7 +1,7 @@
 
 import typing
-from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QDataWidgetMapper, QDialogButtonBox, QDockWidget, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListView, QMainWindow, QPushButton, QSlider, QSpinBox, QSplitter, QTableView, QVBoxLayout, QWidget, QHeaderView
-from PySide6.QtCore import QAbstractListModel, QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt, Signal
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QDataWidgetMapper, QDialogButtonBox, QDockWidget, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListView, QMainWindow, QProgressBar, QProgressDialog, QPushButton, QSlider, QSpinBox, QSplitter, QTableView, QVBoxLayout, QWidget, QHeaderView
+from PySide6.QtCore import QAbstractListModel, QAbstractTableModel, QModelIndex, QPersistentModelIndex, QRunnable, QThreadPool, Qt, Signal, QObject
 from vispy.scene import widgets
 from superqt import QLabeledSlider
 import sys
@@ -158,12 +158,48 @@ class TablePanel(QWidget):
         layout.addWidget(table)
         self.setLayout(layout)
 
+
+class WorkerSignals(QObject):
+    started = Signal()
+    finished = Signal()
+    result = Signal(object)
+
+class Worker(QRunnable):
+
+    def __init__(self, *args, **kwargs):
+        super(Worker, self).__init__()
+        self.args = args
+        self.kwargs = kwargs
+        self.signals = WorkerSignals()
+
+    def run(self):
+        self.signals.started.emit()
+
+        mean_inputs = self.args[0] # self.model._data[0,:]
+        sd_inputs = self.args[1].copy() # self.model._data[1,:]
+        sd_inputs *= np.abs(mean_inputs)
+        sd_inputs /= 100
+
+        t, v = utils.ecgsyn_wr(
+            self.args[2], # self.n_beats.value()
+            mean_inputs,
+            sd_inputs,
+            remove_drift=True
+        )
+
+        ecg = np.empty((t.size, 2), dtype=np.float32)
+        ecg[:, 0] = t
+        ecg[:, 1] = v[2,:]
+
+        self.signals.result.emit(ecg)
+        self.signals.finished.emit()
+
 class RunPanel(QWidget):
-    drawEcg = Signal(np.ndarray)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)
 
+        self.parent = parent
         self.model = parent.inputs_model
         self.setup_ui()
         self.buttons.button(QDialogButtonBox.Apply).clicked.connect(self.run)
@@ -189,23 +225,16 @@ class RunPanel(QWidget):
 
     def run(self, e):
         
-        mean_inputs = self.model._data[0,:]
-        sd_inputs = self.model._data[1,:].copy()
-        sd_inputs *= np.abs(mean_inputs)
-        sd_inputs /= 100
-
-        t, v = utils.ecgsyn_wr(
+        worker = Worker(
+            self.model._data[0,:],
+            self.model._data[1,:],
             self.n_beats.value(),
-            mean_inputs,
-            sd_inputs,
-            remove_drift=True
         )
 
-        ecg = np.empty((t.size, 2), dtype=np.float32)
-        ecg[:, 0] = t
-        ecg[:, 1] = v[2,:]
-
-        self.drawEcg.emit(ecg)
+        worker.signals.started.connect(self.parent.open_progress)
+        worker.signals.finished.connect(self.parent.close_progress)
+        worker.signals.result.connect(self.parent.plot)
+        QThreadPool.globalInstance().start(worker)
 
 class NoisePanel(QGroupBox):
     def __init__(self, parent=None) -> None:
@@ -408,9 +437,14 @@ class ecgsyn(QMainWindow):
         self.inputs_model.computeParams.connect(self.params_model.updateParams)
         self.params_model.computeSignal.connect(self.update)
         self.fiducials_model.drawMarkers.connect(self.beatViewer.set_markers)
-        self.runPanel.drawEcg.connect(self.plot)
 
         self.inputs_model.setDefaultInputs(self.inputsPanel.default_median_values)
+
+    def open_progress(self):
+        self.progressDialog.setValue(50)
+
+    def close_progress(self):
+        self.progressDialog.reset()
 
     def update(self, params):
         self.beatViewer.set_line(params)
@@ -464,6 +498,14 @@ class ecgsyn(QMainWindow):
         msplitter.addWidget(self.ecgViewer)
 
         self.setCentralWidget(msplitter)
+
+        self.progressDialog = QProgressDialog('Simulating ECG ...', 'Abort', 0, 100, self)
+        bar = QProgressBar()
+        bar.setMinimum(0)
+        bar.setMaximum(0)
+        bar.setValue(0)
+        self.progressDialog.setBar(bar)
+        # self.progressDialog.setWindowModality(Qt.Windowmod)
 
         self.show()
 
