@@ -250,11 +250,11 @@ class NoisePanel(QGroupBox):
 
         self.beta = QLabeledSlider(Qt.Horizontal)
         self.beta.setRange(0, 5)
-        self.beta.setValue(0)
+        self.beta.setValue(2)
 
         self.snr = QLabeledSlider(Qt.Horizontal)
         self.snr.setRange(-5, 20)
-        self.snr.setValue(1)
+        self.snr.setValue(5)
 
         layout = QFormLayout()
         layout.addRow('β', self.beta)
@@ -505,6 +505,7 @@ class ecgsyn(QMainWindow):
         bar.setMaximum(0)
         bar.setValue(0)
         self.progressDialog.setBar(bar)
+        self.close_progress()
         # self.progressDialog.setWindowModality(Qt.Windowmod)
 
         self.show()
