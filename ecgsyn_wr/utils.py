@@ -2,6 +2,25 @@ import numpy as np
 import scipy as sp
 from scipy import optimize, special, integrate
 import sympy as sy
+import dill 
+import os
+
+
+def build_transforms():
+    global T_gumbel
+    global T_end
+
+    dill.settings['recurse'] = True
+    if not( os.path.exists('coeffs') and os.path.exists('tend')):
+        print('wait 100 seconds aprox ... only for the first opening.')
+        T_gumbel, T_end = poly_coeffs()
+        dill.dump(T_gumbel, open("coeffs", "wb"))
+        dill.dump(T_end, open("tend", "wb"))
+
+    T_end = dill.load(open("tend", "rb"))
+    T_gumbel = dill.load(open("coeffs", "rb"))
+
+    return [T_gumbel, T_end]
 
 def gaussian_wave(x, a, mu, sigma):
     z = (x-mu)/sigma
@@ -156,7 +175,20 @@ def params2fiducials(params, fun=None):
 
     return fiducials
 
-def inputs2params(inputs, transforms=[None, None]):
+def fiducials2inputs(fiducials, window, ecg):
+    # 'Pon', 'P', 'Pend', 'QRSon', 'Q', 'R', 'S', 'QRSend','res','Ton', 'T', 'Tend', 'res'
+
+    inputs = np.empty(9, dtype=np.float32)
+    inputs[0] = window # 2*(fiducials[5]-onset) # RR
+    inputs[1] = fiducials[2] - fiducials[0] # P duration
+    inputs[2] = fiducials[3]-fiducials[0]# PR
+    inputs[3] = fiducials[7]-fiducials[3]# QRS
+    inputs[4] = fiducials[11]-fiducials[3]# QT
+    inputs[5:] = ecg[fiducials[[1, 5, 6, 10]]]# peaks
+
+    return inputs
+
+def inputs2params(inputs, transforms=[None, None], flat=False):
 
     params = np.empty((4, 3), dtype=np.float32)
 
@@ -185,24 +217,42 @@ def inputs2params(inputs, transforms=[None, None]):
     p = amplitude_params(peaks, fun=F)
     params[:, 0] = p
 
+    if flat:
+        params = np.ravel(params, order='C')
+
     return params
 
-def perturbed_params(mean_params, sd_params, n=100):
-    return np.random.normal(mean_params, sd_params, size=(n, 12))
+def perturbed_data(means, sds, n=100):
+    return np.random.normal(means, sds, size=(n, means.size))
 
-def ecgsyn_wr(n_beats, rr, params):
+def ecgsyn_wr(n_beats, mean_inputs, sd_inputs, remove_drift=False):
     """rr en ms. params en ms y uV"""
-    fun = lambda t, v: mc_sharry(t, v, rr, params)
-    t_end = rr*n_beats
-    samples = int(t_end)
-    time = np.linspace(0, t_end, num=samples)
+    T_gauss = transform_matrix()
+    T_gumbel, _ = build_transforms()
+
+    inputs = perturbed_data(mean_inputs, sd_inputs, n=n_beats)
+    rr = inputs[:,0]
+    rr_acum = np.cumsum(rr)
+
+    params = np.empty((n_beats, 12), dtype=np.float32)
+    for i in range(n_beats):
+        params[i,:] = inputs2params(inputs[i,:], transforms=[T_gauss, T_gumbel], flat=True)
+
+    time = np.arange(0, rr_acum[-1])
+    rad = np.radians(-135)
     sol = sp.integrate.solve_ivp(
-        fun,
+        mc_sharry,
+        args = (rr, rr_acum, params),
         t_span = (time[0], time[-1]),
-        y0 = [0, 1, 0], 
+        y0 = [np.cos(rad), np.sin(rad), 0], 
         t_eval = time,
-        method='RK45'
+        method='Radau'
     )
+
+    if remove_drift:
+        z = sol['y'][2,:]
+        drift = np.linspace(z[0], z[-1], num=time.size)
+        z -= drift
 
     return sol['t'], sol['y']
 
@@ -216,23 +266,33 @@ def dydt(t, v, rr):
     w = 2*np.pi/rr
     return alpha * v[1] + w * v[0]
 
-def dgdt(t, v, rr, a, mu, sigma):
+def dgadt(t, v, rr, a, mu, sigma):
     w = 2*np.pi/rr
     t = (np.pi + np.arctan2(v[1], v[0])) / w
     z = (t-mu)/sigma
-    g = a*np.exp(-.5*z**2)
+    g = gaussian_wave(t, a, mu, sigma)
     return -1.*g*z/sigma
 
+def dgudt(t, v, rr, a, mu, sigma):
+    w = 2*np.pi/rr
+    t = (np.pi + np.arctan2(v[1], v[0])) / w
+    z = (t-mu)/sigma
+    g = gumbel_wave(t, a, mu, sigma)
+    return g*(np.exp(-z)-1.)/sigma
+
 def dzdt(t, v, rr, params):
-    f = dgdt(t, v, rr, *params[:3])     \
-        + dgdt(t, v, rr, *params[3:6])  \
-        + dgdt(t, v, rr, *params[6:9])
+    f = dgadt(t, v, rr, *params[:3])     \
+        + dgadt(t, v, rr, *params[3:6])  \
+        + dgadt(t, v, rr, *params[6:9])  \
+        + dgudt(t, v, rr, *params[9:])
+    
     return f
 
-def mc_sharry(t, v, rr, params):
+def mc_sharry(t, v, rr, rr_acum, params):
+    i = np.nonzero(t < rr_acum)[0][0] # beat selector
     F = [
-        dxdt(t, v, rr),
-        dydt(t, v, rr),
-        dzdt(t, v, rr, params)
+        dxdt(t, v, rr[i]),
+        dydt(t, v, rr[i]),
+        dzdt(t, v, rr[i], params[i,:])
     ]
     return F
