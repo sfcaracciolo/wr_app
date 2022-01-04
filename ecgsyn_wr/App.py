@@ -63,7 +63,7 @@ class InputsModel(QAbstractTableModel):
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
         self._data = data
-        self._hheader = ['RR interval', 'P duration', 'PR interval', 'QRS duration', 'QT inrterval', 'P peak', 'R peak', 'S peak', 'T peak']
+        self._hheader = ['RR interval', 'P duration', 'PR interval', 'QRS duration', 'QT interval', 'P peak', 'R peak', 'S peak', 'T peak']
         self._vheader = ['mu', 'sigma']
 
     def rowCount(self, parent=None) -> int:
