@@ -1,3 +1,3 @@
-from ecgsyn_wr import App
+from wr_app import App
 
 App.run()

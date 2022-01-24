@@ -1,7 +1,7 @@
 import typing
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
 import numpy as np
-from ecgsyn_wr import utils
+from wr_core import utils
 
 class FiducialsModel(QAbstractTableModel):
     drawMarkers = Signal(np.ndarray, np.ndarray)

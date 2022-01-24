@@ -3,11 +3,11 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QProgressBar, QProgress
 from PySide6.QtCore import Qt
 import sys
 import numpy as np
-from ecgsyn_wr import utils
+from wr_core import utils
 import vispy as vp
 from vispy import scene
 import os 
-from ecgsyn_wr import Models, Panels, Constants
+from wr_app import Models, Panels, Constants
 class BeatViewer(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)

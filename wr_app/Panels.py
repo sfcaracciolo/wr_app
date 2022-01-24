@@ -3,7 +3,8 @@ from PySide6.QtGui import Qt
 from PySide6.QtWidgets import QDataWidgetMapper, QDialogButtonBox, QFormLayout, QGridLayout, QHeaderView, QLabel, QSpinBox, QTableView, QVBoxLayout, QWidget, QGroupBox
 import numpy as np
 from superqt import QLabeledSlider
-from ecgsyn_wr import utils, Constants
+from wr_app import Constants
+from wr_core import utils
 import colorednoise as cn
 
 class WorkerSignals(QObject):
@@ -27,7 +28,7 @@ class Worker(QRunnable):
         sd_inputs *= np.abs(mean_inputs)
         sd_inputs /= 100
 
-        t, v = utils.ecgsyn_wr(
+        t, v = utils.wr_ecgsyn(
             self.args[2], # self.n_beats.value()
             mean_inputs,
             sd_inputs,
