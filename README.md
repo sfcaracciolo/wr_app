@@ -9,7 +9,7 @@ pip install git+https://github.com/sfcaracciolo/wr_app.git
 
 ## Usage
 ```
-python main.py
+python -m wr_app.run
 ```
 ## Contact
 Please, if you use this fragment, contact me at scaracciolo@conicet.gov.ar
