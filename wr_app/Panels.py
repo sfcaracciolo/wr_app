@@ -1,12 +1,13 @@
-from PySide6.QtCore import QRunnable, QObject, QThreadPool, Signal
+from PySide6.QtCore import QRunnable, QObject, QThreadPool, Signal, Slot
 from PySide6.QtGui import Qt
-from PySide6.QtWidgets import QDataWidgetMapper, QDialogButtonBox, QFormLayout, QGridLayout, QHeaderView, QLabel, QSpinBox, QTableView, QVBoxLayout, QWidget, QGroupBox
+from PySide6.QtWidgets import QDataWidgetMapper, QDialogButtonBox, QFormLayout, QGridLayout, QHeaderView, QLabel, QSpinBox, QTableView, QVBoxLayout, QWidget, QGroupBox, QFileDialog
 import numpy as np
 from superqt import QLabeledSlider
 from wr_app import Constants
 from wr_core import utils
 import colorednoise as cn
-
+import scipy as sp
+from scipy import io
 class WorkerSignals(QObject):
     started = Signal()
     finished = Signal()
@@ -63,6 +64,8 @@ class RunPanel(QWidget):
         self.model = parent.inputs_model
         self.setup_ui()
         self.buttons.button(QDialogButtonBox.Apply).clicked.connect(self.run)
+        self.buttons.button(QDialogButtonBox.Save).clicked.connect(self.save)
+        self.buttons.button(QDialogButtonBox.Save).setEnabled(False)
 
     def setup_ui(self):
 
@@ -74,7 +77,7 @@ class RunPanel(QWidget):
         form_layout = QFormLayout()
         form_layout.addRow('# beats', self.n_beats)
 
-        self.buttons = QDialogButtonBox(QDialogButtonBox.Apply) #  | QDialogButtonBox.Cancel)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Apply | QDialogButtonBox.Save)
         
         layout = QVBoxLayout()
         layout.addLayout(form_layout)
@@ -92,9 +95,19 @@ class RunPanel(QWidget):
         )
 
         worker.signals.started.connect(self.parent.open_progress)
-        worker.signals.finished.connect(self.parent.close_progress)
+        worker.signals.finished.connect(self.return_to_app)
         worker.signals.result.connect(self.parent.plot)
         QThreadPool.globalInstance().start(worker)
+
+    @Slot()
+    def return_to_app(self):
+        self.parent.close_progress()
+        self.buttons.button(QDialogButtonBox.Save).setEnabled(True)
+
+
+    def save(self, e):
+        path, _ = QFileDialog.getSaveFileName(self, caption='Save File', filter='MATLAB file (*.mat)')
+        sp.io.savemat(path, {'data': self.parent.ecgViewer.line.pos})
 
 class NoisePanel(QGroupBox):
     def __init__(self, parent=None) -> None:
