@@ -10,7 +10,8 @@ class FiducialsModel(QAbstractTableModel):
         super().__init__(parent=parent)
         self._data = data
         self._names = ['Pon', 'P', 'Pend', 'QRSon', 'Q', 'R', 'S', 'QRSend','res','Ton', 'T', 'Tend', 'res']
-        _, self.T_end = utils.build_transforms()
+        # _, self.T_end = utils.build_transforms()
+        self.T_end = utils.T_END
 
     def rowCount(self, parent=None) -> int:
         return 1
@@ -101,8 +102,10 @@ class ParamsModel(QAbstractTableModel):
         self._hheader = ['a', 'mu', 'sigma']
         self._vheader = ['P', 'R', 'S', 'T']
 
-        self.T_gauss = utils.transform_matrix()
-        self.T_gumbel, _ = utils.build_transforms()
+        # self.T_gauss = utils.transform_matrix()
+        # self.T_gumbel, _ = utils.build_transforms()
+        self.T_gauss = utils.T_GAUSS
+        self.T_gumbel = utils.T_GUMBEL
 
     def rowCount(self, parent=None) -> int:
         return self._data.shape[0]
