@@ -1,17 +1,16 @@
 import typing
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtCore import *
 import numpy as np
 from wr_core import utils
-
+from wr_app import Constants
 class FiducialsModel(QAbstractTableModel):
-    drawMarkers = Signal(np.ndarray, np.ndarray)
+    drawBeat = Signal(np.ndarray, np.ndarray)
 
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
         self._data = data
-        self._names = ['Pon', 'P', 'Pend', 'QRSon', 'Q', 'R', 'S', 'QRSend','res','Ton', 'T', 'Tend', 'res']
-        # _, self.T_end = utils.build_transforms()
-        self.T_end = utils.T_END
+        # self._names = ['Pon', 'P', 'Pend', 'QRSon', 'Q', 'R', 'S', 'QRSend','res','Ton', 'T', 'Tend', 'res']
+        self._names = ['Pon', 'Ppeak', 'Poff', 'QRSon', 'Rpeak', 'Speak', 'J', 'Tpeak', 'Toff']
 
     def rowCount(self, parent=None) -> int:
         return 1
@@ -34,15 +33,15 @@ class FiducialsModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole:
             return Qt.AlignCenter
     
-    def updateFiducials(self, params):
-        self._data[:] = utils.params2fiducials(params, fun=self.T_end)
+    def updateFiducials(self, features):
+        theta_t = features[4:]
+        fiducials = Constants.state.Ta @ theta_t
+
+        self._data[:] = fiducials
         self.layoutChanged.emit()
-
-        subset_fiducials = np.delete(self._data, [4, 8, 9, 12])
-        self.drawMarkers.emit(subset_fiducials, params)
-
-class InputsModel(QAbstractTableModel):
-    computeParams = Signal(np.ndarray)
+        self.drawBeat.emit(fiducials, features)
+class MeasurementsModel(QAbstractTableModel):
+    computeFeatures = Signal(np.ndarray)
 
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
@@ -56,15 +55,14 @@ class InputsModel(QAbstractTableModel):
     def columnCount(self, parent = None) -> int:
         return self._data.shape[1]
 
+    # def headerData(self, section: int, orientation: Qt.Orientation, role: int) -> typing.Any:
+    #     if role == Qt.DisplayRole:
+    #         if orientation == Qt.Horizontal:
+    #             return self._hheader[section]
+    #         else:
+    #             return self._vheader[section]
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int) -> typing.Any:
-        if role == Qt.DisplayRole:
-            if orientation == Qt.Horizontal:
-                return self._hheader[section]
-            else:
-                return self._vheader[section]
-
-        return super().headerData(section, orientation, role=role)
+    #     return super().headerData(section, orientation, role=role)
 
     def data(self, index: QModelIndex, role: int) -> typing.Any:
         if role == Qt.DisplayRole:
@@ -76,23 +74,23 @@ class InputsModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole:
             return Qt.AlignCenter
 
-    # def flags(self, index: typing.Union[QModelIndex, QPersistentModelIndex]) -> Qt.ItemFlags:
-    #     return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable
-          
-    def updateInputs(self, i, j, v):
+    def flags(self, index: typing.Union[QModelIndex, QPersistentModelIndex]) -> Qt.ItemFlags:
+        return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+    def updateMeasurements(self, i, j, v):
         self._data[i, j] = v
         index = self.index(i, j)
         self.dataChanged.emit(index, index)
         if i == 0:
-            self.computeParams.emit(self._data[0,:])
+            self.computeFeatures.emit(self._data[0,:])
 
-    def setDefaultInputs(self, values):
+    def setDefaultMeasurements(self, values):
         self._data[0,:] = np.array(values)
         self.layoutChanged.emit()
-        self.computeParams.emit(self._data[0,:])
+        self.computeFeatures.emit(self._data[0,:])
 
-class ParamsModel(QAbstractTableModel):
-    computeSignal = Signal(np.ndarray)
+class FeaturesModel(QAbstractTableModel):
+    computeFiducials = Signal(np.ndarray)
 
     def __init__(self, data: np.ndarray, parent=None) -> None:
         super().__init__(parent=parent)
@@ -101,11 +99,6 @@ class ParamsModel(QAbstractTableModel):
 
         self._hheader = ['a', 'mu', 'sigma']
         self._vheader = ['P', 'R', 'S', 'T']
-
-        # self.T_gauss = utils.transform_matrix()
-        # self.T_gumbel, _ = utils.build_transforms()
-        self.T_gauss = utils.T_GAUSS
-        self.T_gumbel = utils.T_GUMBEL
 
     def rowCount(self, parent=None) -> int:
         return self._data.shape[0]
@@ -122,12 +115,14 @@ class ParamsModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole:
             return Qt.AlignCenter
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int) -> typing.Any:
-        if role == Qt.DisplayRole:
-            return self._vheader[section] if orientation == Qt.Vertical else self._hheader[section]
-        return super().headerData(section, orientation, role=role)
+    # def headerData(self, section: int, orientation: Qt.Orientation, role: int) -> typing.Any:
+    #     if role == Qt.DisplayRole:
+    #         return self._vheader[section] if orientation == Qt.Vertical else self._hheader[section]
+    #     return super().headerData(section, orientation, role=role)
 
-    def updateParams(self, inputs):
-        self._data[:] = utils.inputs2params(inputs, transforms=[self.T_gauss, self.T_gumbel])
+    def updateFeatures(self, measurements):
+        features = utils.inverse_transform(measurements, Constants.state.Tc)
+        self._flatten_data[:] = features
         self.layoutChanged.emit()
-        self.computeSignal.emit(self._flatten_data)
+        self.computeFiducials.emit(features)
+        # self.computeSignal.emit(self._flatten_data)

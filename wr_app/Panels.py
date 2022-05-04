@@ -1,12 +1,11 @@
-from PySide6.QtCore import QRunnable, QObject, QThreadPool, Signal, Slot
-from PySide6.QtGui import Qt
-from PySide6.QtWidgets import QDataWidgetMapper, QDialogButtonBox, QFormLayout, QGridLayout, QHeaderView, QLabel, QSpinBox, QTableView, QVBoxLayout, QWidget, QGroupBox, QFileDialog
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *
 import numpy as np
 from superqt import QLabeledSlider
 from wr_app import Constants
 from wr_core import utils
 import colorednoise as cn
-import scipy as sp
 from scipy import io
 class WorkerSignals(QObject):
     started = Signal()
@@ -24,15 +23,16 @@ class Worker(QRunnable):
     def run(self):
         self.signals.started.emit()
 
-        mean_inputs = self.args[0] # self.model._data[0,:]
-        sd_inputs = self.args[1].copy() # self.model._data[1,:]
-        sd_inputs *= np.abs(mean_inputs)
-        sd_inputs /= 100
+        mean_measurements = self.args[0] # self.model._data[0,:]
+        sd_measurements = self.args[1].copy() # self.model._data[1,:]
+        sd_measurements *= np.abs(mean_measurements)
+        sd_measurements /= 100
 
         t, v = utils.wr_ecgsyn(
             self.args[2], # self.n_beats.value()
-            mean_inputs,
-            sd_inputs,
+            mean_measurements,
+            sd_measurements,
+            Constants.state.Tc,
             remove_drift=True
         )
 
@@ -61,7 +61,7 @@ class RunPanel(QWidget):
         super().__init__(parent=parent)
 
         self.parent = parent
-        self.model = parent.inputs_model
+        self.model = parent.measurements_model
         self.setup_ui()
         self.buttons.button(QDialogButtonBox.Apply).clicked.connect(self.run)
         self.buttons.button(QDialogButtonBox.Save).clicked.connect(self.save)
@@ -107,7 +107,7 @@ class RunPanel(QWidget):
 
     def save(self, e):
         path, _ = QFileDialog.getSaveFileName(self, caption='Save File', filter='MATLAB file (*.mat)')
-        sp.io.savemat(path, {'data': self.parent.ecgViewer.line.pos})
+        io.savemat(path, {'data': self.parent.ecgViewer.line.pos})
 
 class NoisePanel(QGroupBox):
     def __init__(self, parent=None) -> None:
@@ -147,14 +147,14 @@ class NoisePanel(QGroupBox):
             noise *= np.sqrt(power_n)
             signal += noise
 
-class InputsPanel(QWidget):
+class MeasurementsPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)
         self.setup_ui()
 
     def setup_ui(self):
         self.setMinimumWidth(500)
-        model = self.parent().inputs_model
+        model = self.parent().measurements_model
         
         steps = [1, 1, 1, 1, 1, 1, 1, 1, 1]
         median_limits = [
@@ -172,6 +172,7 @@ class InputsPanel(QWidget):
 
         self.mapper = QDataWidgetMapper()
         self.mapper.setSubmitPolicy(QDataWidgetMapper.SubmitPolicy.ManualSubmit)
+        self.mapper.setOrientation(Qt.Horizontal)
         self.mapper.setModel(model)
         
         grid = QGridLayout()
@@ -185,13 +186,13 @@ class InputsPanel(QWidget):
             slider.setValue(value)
             grid.addWidget(slider, j, 1)
             self.mapper.addMapping(slider, j)
-            slider.valueChanged.connect(lambda v, i=0, j=j: model.updateInputs(i, j, v))
+            slider.valueChanged.connect(lambda v, i=0, j=j: model.updateMeasurements(i, j, v))
 
             slider = QLabeledSlider(Qt.Horizontal)
             slider.setRange(0, 20)
             grid.addWidget(slider, j, 2)
             self.mapper.addMapping(slider, j)
-            slider.valueChanged.connect(lambda v, i=1, j=j: model.updateInputs(i, j, v))
+            slider.valueChanged.connect(lambda v, i=1, j=j: model.updateMeasurements(i, j, v))
 
         self.mapper.toFirst()
 

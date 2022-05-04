@@ -138,3 +138,4 @@ pyvenv.cfg
 coeffs
 tend
 lib64
+state.pkl

@@ -115,9 +115,11 @@ class ecgsyn(QMainWindow):
 
         self.setup_ui()
 
-        # self.measurements_model.computeFeatures.connect(self.features_model.updateFeatures)
-        self.features_model.computeSignal.connect(self.update)
-        self.fiducials_model.drawMarkers.connect(self.beatViewer.set_markers)
+        self.measurements_model.computeFeatures.connect(self.features_model.updateFeatures)
+        # self.features_model.computeSignal.connect(self.update)
+        self.features_model.computeFiducials.connect(self.fiducials_model.updateFiducials)
+        # self.fiducials_model.drawBeat.connect(self.beatViewer.set_markers)
+        self.fiducials_model.drawBeat.connect(self.update)
 
         self.measurements_model.setDefaultMeasurements(self.measurementsPanel.default_median_values)
 
@@ -127,8 +129,9 @@ class ecgsyn(QMainWindow):
     def close_progress(self):
         self.progressDialog.reset()
 
-    def update(self, features):
+    def update(self, fiducials, features):
         self.beatViewer.set_line(features)
+        self.beatViewer.set_markers(fiducials, features)
         # self.fiducials_model.updateFiducials(features)
 
     def plot(self, ecg):
