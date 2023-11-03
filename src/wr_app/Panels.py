@@ -3,10 +3,9 @@ from PySide6.QtGui import *
 from PySide6.QtWidgets import *
 import numpy as np
 from superqt import QLabeledSlider
-from wr_app import Constants
-from wr_core import utils
-import colorednoise as cn
+import Constants
 from scipy import io
+
 class WorkerSignals(QObject):
     started = Signal()
     finished = Signal()
@@ -61,7 +60,7 @@ class RunPanel(QWidget):
         super().__init__(parent=parent)
 
         self.parent = parent
-        self.model = parent.measurements_model
+        self.model = parent.meamodel
         self.setup_ui()
         self.buttons.button(QDialogButtonBox.Apply).clicked.connect(self.run)
         self.buttons.button(QDialogButtonBox.Save).clicked.connect(self.save)
@@ -69,10 +68,9 @@ class RunPanel(QWidget):
 
     def setup_ui(self):
 
-
         self.n_beats = QSpinBox()
-        self.n_beats.setRange(10,1000)
-        self.n_beats.setValue(10)
+        self.n_beats.setRange(5,1000)
+        self.n_beats.setValue(5)
 
         form_layout = QFormLayout()
         form_layout.addRow('# beats', self.n_beats)
@@ -138,14 +136,6 @@ class NoisePanel(QGroupBox):
     def add_noise(self, signal):
         if self.isChecked():
             beta = self.beta.value()
-            noise = cn.powerlaw_psd_gaussian(beta, signal.size)
-
-            power_s = np.mean(signal*signal)
-            snr = self.snr.value()
-            power_n = power_s * np.power(10, -snr/10)
-
-            noise *= np.sqrt(power_n)
-            signal += noise
 
 class MeasurementsPanel(QWidget):
     def __init__(self, parent=None) -> None:
@@ -154,11 +144,11 @@ class MeasurementsPanel(QWidget):
 
     def setup_ui(self):
         self.setMinimumWidth(500)
-        model = self.parent().measurements_model
+        model = self.parent().meamodel
         
         steps = [1, 1, 1, 1, 1, 1, 1, 1, 1]
         median_limits = [
-            (200., Constants.RR_MAX), 
+            (150., 300.), 
             (20., 30.), 
             (40., 70.),
             (10., 40.),
@@ -176,7 +166,7 @@ class MeasurementsPanel(QWidget):
         self.mapper.setModel(model)
         
         grid = QGridLayout()
-        for j, (name, step, limit, value) in enumerate(zip(model._hheader, steps, median_limits, self.default_median_values)):
+        for j, (name, step, limit, value) in enumerate(zip(model._header, steps, median_limits, self.default_median_values)):
             label = QLabel(name)
             label.setAlignment(Qt.AlignRight | Qt.AlignCenter)
             grid.addWidget(label, j, 0)
@@ -186,13 +176,13 @@ class MeasurementsPanel(QWidget):
             slider.setValue(value)
             grid.addWidget(slider, j, 1)
             self.mapper.addMapping(slider, j)
-            slider.valueChanged.connect(lambda v, i=0, j=j: model.updateMeasurements(i, j, v))
+            slider.valueChanged.connect(lambda v, j=j: model.updateMeasurements(j, v))
 
-            slider = QLabeledSlider(Qt.Horizontal)
-            slider.setRange(0, 20)
-            grid.addWidget(slider, j, 2)
-            self.mapper.addMapping(slider, j)
-            slider.valueChanged.connect(lambda v, i=1, j=j: model.updateMeasurements(i, j, v))
+            # slider = QLabeledSlider(Qt.Horizontal)
+            # slider.setRange(0, 20)
+            # grid.addWidget(slider, j, 2)
+            # self.mapper.addMapping(slider, j)
+            # slider.valueChanged.connect(lambda v, i=1, j=j: model.updateMeasurements(i, j, v))
 
         self.mapper.toFirst()
 

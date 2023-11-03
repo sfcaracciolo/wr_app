@@ -1,19 +1,17 @@
 
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
-import sys
 import numpy as np
-from wr_core import utils
-import vispy as vp
 from vispy import scene
-from wr_app import Models, Panels, Constants
+import Models, Panels, Constants
+import sys
 
 class BeatViewer(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent=parent)
         
-        self._data = np.empty((2*Constants.RR_MAX, 2), dtype = np.float32)
-        self._data[:,0] = np.arange(0, 2*Constants.RR_MAX)
+        self._data = np.empty((Constants.WINDOW, 2), dtype = np.float32)
+        self._data[:,0] = np.linspace(0, 2*np.pi, num=Constants.WINDOW)
 
         self._markers = np.zeros((9, 2), dtype=np.float32)
 
@@ -46,15 +44,15 @@ class BeatViewer(QWidget):
 
     def set_line(self, features):
         self.vb1.camera.set_range(
-            x=(0, 2*features[6]),
+            x=(0, 2*np.pi),
             y = Constants.Y_RANGE
         )
-        self._data[:,1] = utils.model(self._data[:,0], *features.tolist())
+        self._data[:,1] = Constants.model(self._data[:,0], features)
         self.line.set_data(pos=self._data)
 
     def set_markers(self, fiducials, features):
         self._markers[:, 0] = fiducials
-        self._markers[:, 1] = utils.model(fiducials, *features.tolist())
+        self._markers[:, 1] = Constants.model(fiducials, features)
 
         self.markers.set_data(
             self._markers,
@@ -109,19 +107,19 @@ class ecgsyn(QMainWindow):
         super().__init__()
         self.app = app
 
-        self.measurements_model = Models.MeasurementsModel(Constants.measurements)
-        self.features_model = Models.FeaturesModel(Constants.features)
-        self.fiducials_model = Models.FiducialsModel(Constants.fiducials)
+        self.meamodel = Models.MeasurementsModel(Constants.measurements)
+        self.feamodel = Models.FeaturesModel(Constants.features)
+        self.fidmodel = Models.FiducialsModel(Constants.fiducials)
 
         self.setup_ui()
 
-        self.measurements_model.computeFeatures.connect(self.features_model.updateFeatures)
-        # self.features_model.computeSignal.connect(self.update)
-        self.features_model.computeFiducials.connect(self.fiducials_model.updateFiducials)
-        # self.fiducials_model.drawBeat.connect(self.beatViewer.set_markers)
-        self.fiducials_model.drawBeat.connect(self.update)
+        self.meamodel.computeFeatures.connect(self.feamodel.updateFeatures)
+        # self.feamodel.computeSignal.connect(self.update)
+        self.feamodel.computeFiducials.connect(self.fidmodel.updateFiducials)
+        # self.fidmodel.drawBeat.connect(self.beatViewer.set_markers)
+        self.fidmodel.drawBeat.connect(self.update)
 
-        self.measurements_model.setDefaultMeasurements(self.measurementsPanel.default_median_values)
+        self.meamodel.setDefaultMeasurements(self.measurementsPanel.default_median_values)
 
     def open_progress(self):
         self.progressDialog.setValue(50)
@@ -132,7 +130,7 @@ class ecgsyn(QMainWindow):
     def update(self, fiducials, features):
         self.beatViewer.set_line(features)
         self.beatViewer.set_markers(fiducials, features)
-        # self.fiducials_model.updateFiducials(features)
+        # self.fidmodel.updateFiducials(features)
 
     def plot(self, ecg):
         self.noisePanel.add_noise(ecg[:,1])
@@ -144,9 +142,9 @@ class ecgsyn(QMainWindow):
         self.measurementsPanel = Panels.MeasurementsPanel(parent=self)
         self.noisePanel = Panels.NoisePanel(parent=self)
         self.runPanel = Panels.RunPanel(parent=self)
-        # measurementsView = TablePanel(self.measurements_model, parent=self)
-        # featuresTable = TablePanel(self.features_model, parent=self)
-        # fiducialsTable = TablePanel(self.fiducials_model, parent=self)
+        # measurementsView = TablePanel(self.meamodel, parent=self)
+        # featuresTable = TablePanel(self.feamodel, parent=self)
+        # fiducialsTable = TablePanel(self.fidmodel, parent=self)
         self.beatViewer = BeatViewer(parent=self)
         self.ecgViewer = EcgViewer(parent=self)
 
@@ -194,7 +192,7 @@ class ecgsyn(QMainWindow):
 
         self.show()
 
-def run():
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     viewer = ecgsyn(app)
     sys.exit(app.exec())
