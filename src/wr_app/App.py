@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
+from PySide6.QtGui import *
 from typing import Tuple, Any
 import sys
 from vispy import scene
@@ -9,8 +10,6 @@ import superqt
 import wr_transform
 import ecg_models 
 import ecg_simulator
-
-RED = np.array([1., 0, 0, .5], dtype=np.float32)
 
 class BaseViewer(QWidget):
 
@@ -102,8 +101,8 @@ class BaseViewer(QWidget):
             self._markers,
             size = 10,
             edge_width = 0,
-            edge_color = RED,
-            face_color = RED,
+            edge_color = 'black',
+            face_color = 'black',
         )
         self.markers.update()
 
@@ -190,7 +189,8 @@ class SliderForm(QGroupBox):
             
             if isinstance(step, float):
                 slider = superqt.QLabeledDoubleSlider(Qt.Orientation.Horizontal) 
-
+            
+            slider.setStyleSheet("QSlider::handle:horizontal {background-color: black;}")
             slider.setRange(*limit)
             slider.setValue(value)
             slider.setSingleStep(step)
@@ -239,7 +239,7 @@ K = wr_transform.TransformParameters(
     D=2.0,
     J=wr_transform.TransformParameters.kJ()
 )
-class ECGSYN(QMainWindow):
+class WRAPP(QMainWindow):
     def __init__(self, app):
         super().__init__()
         self.app = app
@@ -396,7 +396,7 @@ class ECGSYN(QMainWindow):
 
     def setup_main_ui(self):
 
-        self.setWindowTitle('ECGSYN')
+        self.setWindowTitle('WR App')
 
         self.beatViewer = BaseViewer(
             n_markers=self.fidmodel.rowCount(),
@@ -412,7 +412,7 @@ class ECGSYN(QMainWindow):
             self.meamodel,
             limits=[(20, 30), (40, 70),(10, 40),(60, 120),(-.25, .25), (.3, 1.),(-.6, -.1),(.1, .4)],
             steps=[1, 1, 1, 1, .01, .01, .01, .01],
-            default_values=[22, 50, 16, 80, .07, .6, -.3, .12],
+            default_values=[22, 50, 16, 80, .07, .6, -.3, .35],
             title='Measurements',
         )
 
@@ -420,7 +420,7 @@ class ECGSYN(QMainWindow):
             self.tachmodel,
             limits=[(512, 2048), (5, 1000), (150, 1000), (0, 100), (.01, 1.), (.01, 1.), (.01, 1.), (.01, 1.), (.1, 1.)],
             steps=[1, 1, 1, 1, .01,.01,.01,.01,.1,],
-            default_values=[1024, 5, 250, 10, .1, .01, .25, .01, .5],
+            default_values=[1024, 500, 250, 10, .1, .01, .25, .01, .5],
             title='Tachogram',
         )
 
@@ -528,5 +528,5 @@ class ECGSYN(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    viewer = ECGSYN(app)
+    viewer = WRAPP(app)
     sys.exit(app.exec())
