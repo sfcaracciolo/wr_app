@@ -1,3 +1,12 @@
+# nuitka-project: --standalone
+# nuitka-project: --msvc=14.3
+# nuitka-project: --lto=yes
+# nuitka-project: --enable-plugin=pyside6
+# nuitka-project: --enable-console
+# nuitka-project: --windows-uac-admin
+# nuitka-project: --windows-product-name=wr_app
+# nuitka-project: --windows-product-version=0.0.0.1
+
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from typing import Tuple, Any
@@ -33,6 +42,8 @@ class BaseViewer(QWidget):
             self._markers = np.zeros((n_markers, 2), dtype=np.float32)
 
         self.canvas = scene.SceneCanvas(show=True, bgcolor='white', parent=self)
+        if interactive: self.canvas.connect(self.on_key_press)
+
         self.grid = self.canvas.central_widget.add_grid()
 
         top_padding = self.grid.add_widget(row=0, col=1, row_span=1)
@@ -76,7 +87,10 @@ class BaseViewer(QWidget):
         self.setLayout(layout)
 
     def set_range(self, x_lims: Tuple = None, y_lims: Tuple = None):
-        if np.allclose(y_lims[0], y_lims[1]): 
+        if x_lims is None and y_lims is None:
+            x_lims = (self._data[:,0].min(), self._data[:,0].max())
+            y_lims = (self._data[:,1].min(), self._data[:,1].max())
+        if y_lims is not None and np.allclose(y_lims[0], y_lims[1]): 
             eps = 1e-4
             y_lims[0] -= eps
             y_lims[1] += eps
@@ -116,6 +130,11 @@ class BaseViewer(QWidget):
 
     def reshape(self, size: int):
         self._data = np.empty((size,2), dtype = np.float32)
+
+    def on_key_press(self, e):
+        key = e.key.name
+        if key == 'R':
+            self.set_range()
 class ArrayModel(QAbstractListModel):
     emmiter = Signal(np.ndarray)
 
@@ -205,6 +224,7 @@ class Worker(QRunnable):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
+        self.setAutoDelete(True)
 
     def run(self):
         self.signals.started.emit()
@@ -229,10 +249,9 @@ K = wr_transform.TransformParameters(
     J=wr_transform.TransformParameters.kJ()
 )
 class ECGSYN(QMainWindow):
-    def __init__(self, app, fs: float):
+    def __init__(self, app):
         super().__init__()
         self.app = app
-        self.fs = fs
         self.beat_size = None
         self.Nb = None
         self.rr_mean = None
@@ -243,12 +262,9 @@ class ECGSYN(QMainWindow):
 
         self.simmodel = ArrayModel(names=['damping'], parent=self)
         self.respmodel = ArrayModel(names=['A', 'f'], parent=self)
-        # self.fparamsmodel = ArrayModel(names=['μ1', 'σ1', 'μ2', 'σ2', 'LF/HF'], parent=self)
-
-        self.tachmodel = ArrayModel(names=['# Beats', 'μRR', 'σRR', 'μLF', 'σLF', 'μHF', 'σHF', 'LF/HF'], parent=self)
+        self.tachmodel = ArrayModel(names=['fs [Hz]', 'Beats [#]', 'μRR [ms]', 'σRR [ms]', 'μLF [Hz]', 'σLF [Hz]', 'μHF [Hz]', 'σHF [Hz]', 'LF/HF'], parent=self)
         self.noisemodel = ArrayModel(names=['β', 'SNR [db]'], parent=self)
-
-        self.meamodel = ArrayModel(names=['P duration', 'PR interval', 'QRS duration', 'QT interval', 'P', 'R', 'S', 'T'], parent=self)
+        self.meamodel = ArrayModel(names=['P duration [ms]', 'PR interval [ms]', 'QRS duration [ms]', 'QT interval [ms]', 'P [mV]', 'R [mV]', 'S [mV]', 'T [mV]'], parent=self)
         self.fidmodel = ArrayModel(names=['Pon', 'Ppeak', 'Poff', 'QRSon', 'Rpeak', 'Speak', 'J', 'Tpeak', 'Toff'], dtype=np.int64, parent=self)
         self.feamodel = ArrayModel(names=['a_P', 'mu_P', 's_P','a_R', 'mu_R', 's_R','a_S', 'mu_S', 's_S','a_T', 'mu_T', 's_T'], parent=self)
 
@@ -264,6 +280,8 @@ class ECGSYN(QMainWindow):
 
         # init
         self.compute_tachogram()
+
+        self.show()
 
     def compute_features(self, values: np.ndarray = None):
         if values is None: values = self.meamodel._data
@@ -292,13 +310,13 @@ class ECGSYN(QMainWindow):
     def compute_tachogram(self, values: np.ndarray = None):
         if values is None: values = self.tachmodel._data 
 
-        new_Nb, tparams, fparams = int(values[0]), values[1:3]/1000., values[3:] # ms to s
+        new_fs, new_Nb, tparams, fparams = values[0], int(values[1]), values[2:4]/1000., values[4:] # ms to s
 
         new_beat_size, (_, rr), (f, psd) = ecg_simulator.tachogram(
             fparams.tolist(),
             tparams.tolist(), 
             new_Nb,
-            self.fs,
+            new_fs,
         )
 
         rr = rr[::new_beat_size]
@@ -308,6 +326,7 @@ class ECGSYN(QMainWindow):
             self.beatViewer.reshape(new_beat_size)
             self.beatViewer.set_x(np.linspace(0, 2*np.pi, num=new_beat_size))
             self.beat_size = new_beat_size
+            self.fs = new_fs
             self.compute_features()
         
         # draw tachogram
@@ -344,23 +363,16 @@ class ECGSYN(QMainWindow):
             y += resp[0] * np.sin(2*np.pi*resp[1]*self.raw_x)
         
         self.ecgViewer.set_line(x=self.raw_x, y=y)
-        self.ecgViewer.set_range(
-            x_lims=(0, self.raw_x[-1]),
-            y_lims=[y.min(), y.max()]
-        )
         
     def set_loading(self):
         self.syn_button.hide()
         self.bar.show()
         self.v_left_splitter.setEnabled(False)
-        # self.bar.setValue(50)
 
     def reset_loading(self):
         self.bar.hide()
         self.syn_button.show()
         self.v_left_splitter.setEnabled(True)
-
-        # self.bar.reset()
 
     def synthetize(self, e: QEvent):
         ζ = self.simmodel._data[0]
@@ -386,6 +398,9 @@ class ECGSYN(QMainWindow):
 
         self.ecgViewer.reshape(x.size)
         self.add_additives()
+        self.ecgViewer.set_range()
+
+        self.ecg_window.setFixedHeight(300)
         self.ecg_window.show()
 
     def setup_main_ui(self):
@@ -420,9 +435,9 @@ class ECGSYN(QMainWindow):
 
         self.tachForm = SliderForm(
             self.tachmodel,
-            limits=[(5, 1000), (150, 1000), (0, 100), (.01, 1.), (.01, 1.), (.01, 1.), (.01, 1.), (.1, 1.)],
-            steps=[1, 1, 1, .01,.01,.01,.01,.1,],
-            default_values=[5, 250, 10, .1, .01, .25, .01, .5],
+            limits=[(512, 2048), (5, 1000), (150, 1000), (0, 100), (.01, 1.), (.01, 1.), (.01, 1.), (.01, 1.), (.1, 1.)],
+            steps=[1, 1, 1, 1, .01,.01,.01,.01,.1,],
+            default_values=[1024, 5, 250, 10, .1, .01, .25, .01, .5],
             title='Tachogram',
             parent=self
         )
@@ -437,49 +452,37 @@ class ECGSYN(QMainWindow):
         )
 
         # vertical splitter
-        self.v_left_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.v_left_splitter = QSplitter(
+            Qt.Orientation.Vertical,
+            parent=self
+        )
 
         self.v_left_splitter.addWidget(self.meaForm)
-        self.v_left_splitter.setStretchFactor(0, 4)
-
-        # v_left_splitter.addWidget(self.fparamsForm)
-        # v_left_splitter.setStretchFactor(1, 5)
-
         self.v_left_splitter.addWidget(self.tachForm)
-        self.v_left_splitter.setStretchFactor(1, 4)
-
         self.v_left_splitter.addWidget(self.simForm)
-        self.v_left_splitter.setStretchFactor(2, 4)
 
-        # self.progressDialog = QProgressDialog('Simulating ECG ...', 'Abort', 0, 100, self)
+        h_widget = QWidget()
+        h_layout = QHBoxLayout(h_widget)
+
         self.bar = QProgressBar()
         self.bar.setMinimum(0)
         self.bar.setMaximum(0)
         self.bar.setValue(0)
+        self.bar.setTextVisible(False)
         self.bar.hide()
-        # self.progressDialog.setBar(bar)
-        # self.progressDialog.setWindowModality(Qt.Windowmod)
 
         self.syn_button = QPushButton('Synthetize')
+        self.syn_button.setMaximumWidth(150)
         self.syn_button.clicked.connect(self.synthetize)
-
-        button_bar_splitter = QSplitter(Qt.Orientation.Horizontal)
-        button_bar_splitter.addWidget(self.bar)
-        button_bar_splitter.addWidget(self.syn_button)
-
-
-        self.v_left_splitter.addWidget(button_bar_splitter)
-        self.v_left_splitter.setStretchFactor(3, 4)
+        h_layout.addWidget(self.syn_button)
+        h_layout.addWidget(self.bar)
+        
+        self.v_left_splitter.addWidget(h_widget)
 
         v_right_splitter = QSplitter(Qt.Orientation.Vertical)
         v_right_splitter.addWidget(self.beatViewer)
-        v_right_splitter.setStretchFactor(0, 3)
-
         v_right_splitter.addWidget(self.psdViewer)
-        v_right_splitter.setStretchFactor(1, 3)
-
         v_right_splitter.addWidget(self.tachViewer)
-        v_right_splitter.setStretchFactor(2, 3)
 
         # horizontal
         h_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -489,8 +492,13 @@ class ECGSYN(QMainWindow):
 
     def setup_ecg_ui(self):
 
-        self.ecg_window = QSplitter(Qt.Orientation.Horizontal, windowFlags = Qt.WindowType.Window)
-        self.ecg_window.setMaximumHeight(300)
+        self.ecg_window = QSplitter(
+            Qt.Orientation.Horizontal,
+            windowFlags = Qt.WindowType.Window,
+            parent=self
+        )
+        self.ecg_window.setFixedHeight(300)
+        self.ecg_window.setWindowTitle('ECG Viewer')
 
         self.noiseForm = SliderForm(
             self.noisemodel,
@@ -510,11 +518,15 @@ class ECGSYN(QMainWindow):
             steps=[.01,.01,],
             default_values=[.1, .75,],
             title='Respiration',
-            parent=self
+            parent=self.ecg_window
         )
 
         save_button = QPushButton('Save')
+        save_button.setMaximumWidth(150)
         save_button.clicked.connect(self.save)
+        h_widget = QWidget()
+        h_layout = QHBoxLayout(h_widget)
+        h_layout.addWidget(save_button)
 
         self.ecgViewer = BaseViewer(
             interactive=True,
@@ -524,51 +536,21 @@ class ECGSYN(QMainWindow):
         v_left_splitter = QSplitter(Qt.Orientation.Vertical)
 
         v_left_splitter.addWidget(self.noiseForm)
-        v_left_splitter.setStretchFactor(0, 3)
-
         v_left_splitter.addWidget(self.respForm)
-        v_left_splitter.setStretchFactor(1, 3)
-
-        v_left_splitter.addWidget(save_button)
-        v_left_splitter.setStretchFactor(2, 3)
-
-
+        v_left_splitter.addWidget(h_widget)
         self.ecg_window.addWidget(v_left_splitter)
-        self.ecg_window.setStretchFactor(0, 2)
-
         self.ecg_window.addWidget(self.ecgViewer)
-        self.ecg_window.setStretchFactor(1, 2)
-
-        self.show()
 
     def save(self, e):
         path, _ = QFileDialog.getSaveFileName(self, caption='Save File', filter='MATLAB file (*.mat)')
         if path:
-            sp.io.savemat(path, {'fs':self.fs, 'x': self.ecgViewer.get_x(), 'y': self.ecgViewer.get_y()})
+            sp.io.savemat(path, {'fs':self.fs, 'y': self.ecgViewer.get_y()})
 
-
-
+    def close(self) -> bool:
+        self.ecg_window.close()
+        return super().close()
 
 if __name__ == '__main__':
-
-    try:
-        fs_index = sys.argv.index('--fs') + 1
-    except ValueError as exc:
-        print(exc)
-        exit()
-
-    try:
-        fs_val = sys.argv[fs_index]
-    except IndexError as exc:
-        print(exc)
-        exit()
-
-    try:
-        fs = float(fs_val)
-    except IndexError as exc:
-        print(exc)
-        exit()
-    else:
-        app = QApplication(sys.argv)
-        viewer = ECGSYN(app, fs)
-        sys.exit(app.exec())
+    app = QApplication(sys.argv)
+    viewer = ECGSYN(app)
+    sys.exit(app.exec())
