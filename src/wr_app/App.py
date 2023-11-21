@@ -139,7 +139,7 @@ class ArrayModel(QAbstractListModel):
     emmiter = Signal(np.ndarray)
 
     def __init__(self, names: Tuple[str] = None, dtype=np.float64, parent: QObject | None = ...) -> None:
-        super().__init__(parent)
+        super().__init__(parent=None)
 
         if names is not None:
             size = len(names)
@@ -260,13 +260,13 @@ class ECGSYN(QMainWindow):
         self.transform = wr_transform.TransformModel(K, self.fmodel)
 
 
-        self.simmodel = ArrayModel(names=['damping'], parent=self)
-        self.respmodel = ArrayModel(names=['A', 'f'], parent=self)
-        self.tachmodel = ArrayModel(names=['fs [Hz]', 'Beats [#]', 'μRR [ms]', 'σRR [ms]', 'μLF [Hz]', 'σLF [Hz]', 'μHF [Hz]', 'σHF [Hz]', 'LF/HF'], parent=self)
-        self.noisemodel = ArrayModel(names=['β', 'SNR [db]'], parent=self)
-        self.meamodel = ArrayModel(names=['P duration [ms]', 'PR interval [ms]', 'QRS duration [ms]', 'QT interval [ms]', 'P [mV]', 'R [mV]', 'S [mV]', 'T [mV]'], parent=self)
-        self.fidmodel = ArrayModel(names=['Pon', 'Ppeak', 'Poff', 'QRSon', 'Rpeak', 'Speak', 'J', 'Tpeak', 'Toff'], dtype=np.int64, parent=self)
-        self.feamodel = ArrayModel(names=['a_P', 'mu_P', 's_P','a_R', 'mu_R', 's_R','a_S', 'mu_S', 's_S','a_T', 'mu_T', 's_T'], parent=self)
+        self.simmodel = ArrayModel(names=['damping'])
+        self.respmodel = ArrayModel(names=['A [mV]', 'f [Hz]'])
+        self.tachmodel = ArrayModel(names=['fs [Hz]', 'Beats [#]', 'μRR [ms]', 'σRR [ms]', 'μLF [Hz]', 'σLF [Hz]', 'μHF [Hz]', 'σHF [Hz]', 'LF/HF'])
+        self.noisemodel = ArrayModel(names=['β', 'SNR [db]'])
+        self.meamodel = ArrayModel(names=['P duration [ms]', 'PR interval [ms]', 'QRS duration [ms]', 'QT interval [ms]', 'P [mV]', 'R [mV]', 'S [mV]', 'T [mV]'], )
+        self.fidmodel = ArrayModel(names=['Pon', 'Ppeak', 'Poff', 'QRSon', 'Rpeak', 'Speak', 'J', 'Tpeak', 'Toff'], dtype=np.int64)
+        self.feamodel = ArrayModel(names=['a_P', 'mu_P', 's_P','a_R', 'mu_R', 's_R','a_S', 'mu_S', 's_S','a_T', 'mu_T', 's_T'])
 
         self.meamodel.emmiter.connect(self.compute_features)
         self.feamodel.emmiter.connect(self.compute_fiducials)
@@ -409,20 +409,13 @@ class ECGSYN(QMainWindow):
 
         self.beatViewer = BaseViewer(
             n_markers=self.fidmodel.rowCount(),
-            parent=self
         )
 
-        self.psdViewer = BaseViewer(
-            parent=self
-        )
+        self.psdViewer = BaseViewer()
 
-        self.tachViewer = BaseViewer(
-            parent=self
-        )
+        self.tachViewer = BaseViewer()
 
-        self.ecgViewer = BaseViewer(
-            parent=self
-        )
+        self.ecgViewer = BaseViewer()
         
         self.meaForm = SliderForm(
             self.meamodel,
@@ -430,7 +423,6 @@ class ECGSYN(QMainWindow):
             steps=[1, 1, 1, 1, .01, .01, .01, .01],
             default_values=[22, 50, 16, 80, .07, .6, -.3, .12],
             title='Measurements',
-            parent=self
         )
 
         self.tachForm = SliderForm(
@@ -439,7 +431,6 @@ class ECGSYN(QMainWindow):
             steps=[1, 1, 1, 1, .01,.01,.01,.01,.1,],
             default_values=[1024, 5, 250, 10, .1, .01, .25, .01, .5],
             title='Tachogram',
-            parent=self
         )
 
         self.simForm = SliderForm(
@@ -448,13 +439,11 @@ class ECGSYN(QMainWindow):
             steps=[.01],
             default_values=[.1],
             title='Simulator',
-            parent=self
         )
 
         # vertical splitter
         self.v_left_splitter = QSplitter(
             Qt.Orientation.Vertical,
-            parent=self
         )
 
         self.v_left_splitter.addWidget(self.meaForm)
@@ -495,18 +484,16 @@ class ECGSYN(QMainWindow):
         self.ecg_window = QSplitter(
             Qt.Orientation.Horizontal,
             windowFlags = Qt.WindowType.Window,
-            parent=self
         )
         self.ecg_window.setFixedHeight(300)
         self.ecg_window.setWindowTitle('ECG Viewer')
 
         self.noiseForm = SliderForm(
             self.noisemodel,
-            limits=[(0, 5), (-5, 20)],
+            limits=[(0, 5), (-100, 20)],
             steps=[1, 1],
             default_values=[2, 5],
             title='Noise',
-            parent=self.ecg_window
         )
         self.noiseForm.setCheckable(True)
         self.noiseForm.setChecked(False)
@@ -518,7 +505,6 @@ class ECGSYN(QMainWindow):
             steps=[.01,.01,],
             default_values=[.1, .75,],
             title='Respiration',
-            parent=self.ecg_window
         )
 
         save_button = QPushButton('Save')
@@ -530,7 +516,6 @@ class ECGSYN(QMainWindow):
 
         self.ecgViewer = BaseViewer(
             interactive=True,
-            parent=self.ecg_window
         )
 
         v_left_splitter = QSplitter(Qt.Orientation.Vertical)
