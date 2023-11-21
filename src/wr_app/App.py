@@ -1,12 +1,3 @@
-# nuitka-project: --standalone
-# nuitka-project: --msvc=14.3
-# nuitka-project: --lto=yes
-# nuitka-project: --enable-plugin=pyside6
-# nuitka-project: --enable-console
-# nuitka-project: --windows-uac-admin
-# nuitka-project: --windows-product-name=wr_app
-# nuitka-project: --windows-product-version=0.0.0.1
-
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from typing import Tuple, Any
