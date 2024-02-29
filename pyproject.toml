@@ -22,5 +22,5 @@ dependencies = [
   "superqt",
   wr_transform @ git+https://github.com/sfcaracciolo/wr_transform.git,
   ecg_models @ git+https://github.com/sfcaracciolo/ecg_models.git,
-  ecg_simulator @ git+https://github.com/sfcaracciolo/ecg_simulator.git
+  ecg_simulator @ git+https://github.com/sfcaracciolo/ecg_simulator.git,
 ]
