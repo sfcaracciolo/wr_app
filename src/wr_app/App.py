@@ -522,9 +522,9 @@ class WRAPP(QMainWindow):
         if path:
             sp.io.savemat(path, {'fs':self.fs, 'y': self.ecgViewer.get_y()})
 
-    def close(self) -> bool:
-        self.ecg_window.close()
-        return super().close()
+    def closeEvent(self, event) -> bool:
+        self.ecg_window.deleteLater()
+        return super().closeEvent(event)
 
 # if __name__ == '__main__':
 app = QApplication(sys.argv)
