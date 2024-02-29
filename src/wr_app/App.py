@@ -526,7 +526,7 @@ class WRAPP(QMainWindow):
         self.ecg_window.close()
         return super().close()
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    viewer = WRAPP(app)
-    sys.exit(app.exec())
+# if __name__ == '__main__':
+app = QApplication(sys.argv)
+viewer = WRAPP(app)
+sys.exit(app.exec())
